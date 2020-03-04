@@ -15,6 +15,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QGridLayout
 from PyQt5.QtWidgets import QLabel
 from PyQt5.QtWidgets import QLineEdit
+from PyQt5.QtWidgets import QRadioButton
 from PyQt5.QtWidgets import QPushButton
 from PyQt5.QtWidgets import QVBoxLayout
 from PyQt5.QtWidgets import QHBoxLayout
@@ -31,6 +32,9 @@ __author__ = "RL Pfeiffer"
 
 class ImageViewerUi(QMainWindow):
     rawImages = []
+    redImageIndex = -1
+    # greenImageIndex = -1
+    # blueImageIndex = -1
 
     """View Gui"""
     def __init__(self):
@@ -64,24 +68,21 @@ class ImageViewerUi(QMainWindow):
         openAct.triggered.connect(self.openImages)
         fileMenu.addAction(openAct)
 
+    # def setRedImageIndex(self, newIndex):
+    #     self.redColumn = QtWidgets.QRadioButton()
+    #     self
+
     def _createViewList(self):
         #create file view list
         self.ViewList_Box = QtWidgets.QGroupBox('Open Images')
         self.ViewList_Box.setMinimumSize(400, 200)
-        self.ViewList_Layout  = QtWidgets.QFormLayout()
-        self.ViewList_RawList = QtWidgets.QListView()
-        self.ViewList_Items = QtGui.QStandardItemModel(self.ViewList_RawList)
-
+        self.ViewList_Layout  = QtWidgets.QVBoxLayout()
         self.ViewList_Box.setLayout(self.ViewList_Layout)
 
-        self.ViewList_Layout.addWidget(self.ViewList_RawList)
         self.ViewList_Layout.setSpacing(2)
         self.ViewList_Layout.setContentsMargins(2, 2, 2, 2)
-        self.ViewList_RawList.setModel(self.ViewList_Items)
 
         self.generalLayout.addWidget(self.ViewList_Box)
-
-        self.ViewList_Items.itemChanged.connect(self.changeSelectedImage)
 
     def chooseDisplayedImage(self, index):
         pixmap = QPixmap.fromImage(self.rawImages[index])
@@ -126,9 +127,18 @@ class ImageViewerUi(QMainWindow):
     def importImageWrapper(self, fileName):
         self.rawImages.append(QImage(fileName))
 
-        file = QtGui.QStandardItem(fileName)
-        file.setCheckable(True)
-        self.ViewList_Items.appendRow(file)
+        row = QtWidgets.QGroupBox()
+        rowLayout = QtWidgets.QHBoxLayout()
+
+
+        rowLayout.addWidget(QRadioButton())
+        rowLayout.addWidget(QRadioButton())
+        rowLayout.addWidget(QRadioButton())
+        rowLayout.addWidget(QLabel(fileName))
+
+        row.setLayout(rowLayout)
+        self.ViewList_Layout.addWidget(row)
+
 
 
 
