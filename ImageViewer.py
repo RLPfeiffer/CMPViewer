@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import QApplication
 from PyQt5.QtWidgets import QMainWindow
 from PyQt5.QtWidgets import QScrollArea
 from PyQt5.QtWidgets import QWidget
+from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import QMenuBar
 from PyQt5.QtWidgets import QFileDialog
 from PyQt5.QtWidgets import QAction
@@ -83,12 +84,13 @@ class ImageViewerUi(QMainWindow):
     def updateDisplay(self, image):
         if type(image) is QPixmap:
              pixmap = image
+        elif type(image) is QImage:
+             pixmap = QPixmap.fromImage(image)
         else:
             raise RuntimeError("ImageViewer.setImage: Argument must be a QImage or QPixmap.")
         if self.hasImage():
-            self._pixmapHandle.setPixmap(pixmap)
-        else:
-            self._pixmapHandle = self.scene.addPixmap(pixmap)
+            self.display.setPixmap(pixmap)
+
         self.setSceneRect(QRectF(pixmap.rect()))  # Set scene size to image size.
         self._createDisplay()
 
@@ -108,12 +110,13 @@ class ImageViewerUi(QMainWindow):
             self.importImageWrapper(fileName)
 
     def importImageWrapper(self, fileName):
-        image= QPixmap(fileName)
+        image= QImage(fileName)
+        pixmap = QPixmap.fromImage(image)
         file = QtGui.QStandardItem(fileName)
         file.setCheckable(True)
         self.ViewList_Items.appendRow(file)
-        self.display.setPixmap(image)
-        self.resize(image.size())
+        self.display.setPixmap(pixmap)
+        self.resize(pixmap.size())
         self.adjustSize()
 
 #Client code
