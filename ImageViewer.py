@@ -30,6 +30,8 @@ __author__ = "RL Pfeiffer"
 #QMainwindow subclass for calc GUI
 
 class ImageViewerUi(QMainWindow):
+    rawImages = []
+
     """View Gui"""
     def __init__(self):
         """View Initializer"""
@@ -79,20 +81,30 @@ class ImageViewerUi(QMainWindow):
 
         self.generalLayout.addWidget(self.ViewList_Box)
 
-        self.ViewList_Items.itemChanged.connect(self.updateDisplay)
+        self.ViewList_Items.itemChanged.connect(self.changeSelectedImage)
 
-    def updateDisplay(self, image):
-        if type(image) is QPixmap:
-             pixmap = image
-        elif type(image) is QImage:
-             pixmap = QPixmap.fromImage(image)
-        else:
-            raise RuntimeError("ImageViewer.setImage: Argument must be a QImage or QPixmap.")
-        if self.hasImage():
-            self.display.setPixmap(pixmap)
+    def chooseDisplayedImage(self, index):
+        pixmap = QPixmap.fromImage(self.rawImages[index])
+        self.display.setPixmap(pixmap)
+        self.resize(pixmap.size())
+        self.adjustSize()
 
-        self.setSceneRect(QRectF(pixmap.rect()))  # Set scene size to image size.
-        self._createDisplay()
+    def changeSelectedImage(self, imageItem):
+        self.chooseDisplayedImage(imageItem.index().row())
+
+        # print(type(image))
+        # print(image)
+        # if type(image) is QPixmap:
+        #      pixmap = image
+        # elif type(image) is QImage:
+        #      pixmap = QPixmap.fromImage(image)
+        # else:
+        #     raise RuntimeError("ImageViewer.setImage: Argument must be a QImage or QPixmap.")
+        # if self.hasImage():
+        #     self.display.setPixmap(pixmap)
+        #
+        # self.setSceneRect(QRectF(pixmap.rect()))  # Set scene size to image size.
+        # self._createDisplay()
 
     def _createDisplay(self):
         #Create display widget
@@ -108,16 +120,17 @@ class ImageViewerUi(QMainWindow):
         fileNames = QFileDialog.getOpenFileNames(self, self.tr("Select image(s) to open"))
         for fileName in fileNames[0]:
             self.importImageWrapper(fileName)
+        self.chooseDisplayedImage(0)
+
 
     def importImageWrapper(self, fileName):
-        image= QImage(fileName)
-        pixmap = QPixmap.fromImage(image)
+        self.rawImages.append(QImage(fileName))
+
         file = QtGui.QStandardItem(fileName)
         file.setCheckable(True)
         self.ViewList_Items.appendRow(file)
-        self.display.setPixmap(pixmap)
-        self.resize(pixmap.size())
-        self.adjustSize()
+
+
 
 #Client code
 def main():
