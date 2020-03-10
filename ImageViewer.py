@@ -60,6 +60,7 @@ class ImageViewerUi(QMainWindow):
         """Create a menubar"""
         menuBar = self.menuBar()
         self.menuBar = QMenuBar()
+        menuBar.setNativeMenuBar(False)
         fileMenu = menuBar.addMenu('File')
         self.generalLayout.addWidget(self.menuBar)
 
