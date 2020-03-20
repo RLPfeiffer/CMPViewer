@@ -32,7 +32,11 @@ __author__ = "RL Pfeiffer"
 
 class ImageViewerUi(QMainWindow):
     rawImages = []
-    redImageIndex = -1
+    grayRB = None
+    #redRB = QRadioButton(None)
+    #greenRB = QRadioButton(None)
+    #blueRB = QRadioButton(None)
+    #redImageIndex = -1
     # greenImageIndex = -1
     # blueImageIndex = -1
 
@@ -69,10 +73,6 @@ class ImageViewerUi(QMainWindow):
         openAct.triggered.connect(self.openImages)
         fileMenu.addAction(openAct)
 
-    # def setRedImageIndex(self, newIndex):
-    #     self.redColumn = QtWidgets.QRadioButton()
-    #     self
-
     def _createViewList(self):
         #create file view list
         self.ViewList_Box = QtWidgets.QGroupBox('Open Images')
@@ -85,13 +85,19 @@ class ImageViewerUi(QMainWindow):
 
         self.generalLayout.addWidget(self.ViewList_Box)
 
+        if self.grayRB is None:
+            pass
+        else:
+            self.grayRB.toggled.connect(self.changeGrayscaleImage)
+
+
     def chooseDisplayedImage(self, index):
         pixmap = QPixmap.fromImage(self.rawImages[index])
         self.display.setPixmap(pixmap)
         self.resize(pixmap.size())
         self.adjustSize()
 
-    def changeSelectedImage(self, imageItem):
+    def changeGrayscaleImage(self, imageItem):
         self.chooseDisplayedImage(imageItem.index().row())
 
         # print(type(image))
@@ -124,24 +130,24 @@ class ImageViewerUi(QMainWindow):
             self.importImageWrapper(fileName)
         self.chooseDisplayedImage(0)
 
-
     def importImageWrapper(self, fileName):
         self.rawImages.append(QImage(fileName))
 
         row = QtWidgets.QGroupBox()
         rowLayout = QtWidgets.QHBoxLayout()
 
-
-        rowLayout.addWidget(QRadioButton())
-        rowLayout.addWidget(QRadioButton())
-        rowLayout.addWidget(QRadioButton())
+        self.grayRB = QRadioButton("Gray")
+        rowLayout.addWidget(self.grayRB)
+        self.redRB = QRadioButton("R")
+        rowLayout.addWidget(self.redRB)
+        self.greenRB = QRadioButton("G")
+        rowLayout.addWidget(self.greenRB)
+        self.blueRB = QRadioButton("B")
+        rowLayout.addWidget(self.blueRB)
         rowLayout.addWidget(QLabel(fileName))
 
         row.setLayout(rowLayout)
         self.ViewList_Layout.addWidget(row)
-
-
-
 
 #Client code
 def main():
