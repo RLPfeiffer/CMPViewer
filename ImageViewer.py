@@ -32,10 +32,10 @@ __author__ = "RL Pfeiffer"
 
 class ImageViewerUi(QMainWindow):
     rawImages = []
-    grayRB = None
-    #redRB = QRadioButton(None)
-    #greenRB = QRadioButton(None)
-    #blueRB = QRadioButton(None)
+    grayRBlist = []
+    redRBlist = []
+    greenRBlist = []
+    blueRBlist = []
     #redImageIndex = -1
     # greenImageIndex = -1
     # blueImageIndex = -1
@@ -85,10 +85,11 @@ class ImageViewerUi(QMainWindow):
 
         self.generalLayout.addWidget(self.ViewList_Box)
 
-        if self.grayRB is None:
-            pass
-        else:
-            self.grayRB.toggled.connect(self.changeGrayscaleImage)
+        #if self.grayRB is None:
+        #    pass
+        #else:
+        #    print('Found grayRB')
+        #self.grayRB.toggled.connect(self.changeGrayscaleImage)
 
 
     def chooseDisplayedImage(self, index):
@@ -98,21 +99,8 @@ class ImageViewerUi(QMainWindow):
         self.adjustSize()
 
     def changeGrayscaleImage(self, imageItem):
-        self.chooseDisplayedImage(imageItem.index().row())
-
-        # print(type(image))
-        # print(image)
-        # if type(image) is QPixmap:
-        #      pixmap = image
-        # elif type(image) is QImage:
-        #      pixmap = QPixmap.fromImage(image)
-        # else:
-        #     raise RuntimeError("ImageViewer.setImage: Argument must be a QImage or QPixmap.")
-        # if self.hasImage():
-        #     self.display.setPixmap(pixmap)
-        #
-        # self.setSceneRect(QRectF(pixmap.rect()))  # Set scene size to image size.
-        # self._createDisplay()
+        #self.chooseDisplayedImage(imageItem.index().row())
+        print('Gray button toggled')
 
     def _createDisplay(self):
         #Create display widget
@@ -128,23 +116,39 @@ class ImageViewerUi(QMainWindow):
         fileNames = QFileDialog.getOpenFileNames(self, self.tr("Select image(s) to open"))
         for fileName in fileNames[0]:
             self.importImageWrapper(fileName)
+            self.colorRBs(fileName)
         self.chooseDisplayedImage(0)
 
     def importImageWrapper(self, fileName):
         self.rawImages.append(QImage(fileName))
 
+    def colorRBs(self, fileName):
         row = QtWidgets.QGroupBox()
         rowLayout = QtWidgets.QHBoxLayout()
 
-        self.grayRB = QRadioButton("Gray")
-        rowLayout.addWidget(self.grayRB)
-        self.redRB = QRadioButton("R")
-        rowLayout.addWidget(self.redRB)
-        self.greenRB = QRadioButton("G")
-        rowLayout.addWidget(self.greenRB)
-        self.blueRB = QRadioButton("B")
-        rowLayout.addWidget(self.blueRB)
-        rowLayout.addWidget(QLabel(fileName))
+    #Adding buttons for grayscale
+        grayRadioButton = QRadioButton("Gray")
+        grayRadioButton.toggled.connect(self.changeGrayscaleImage)
+        rowLayout.addWidget(grayRadioButton)
+        self.grayRBlist.append(grayRadioButton)
+
+    #Adding buttons for red
+        redRadioButton = QRadioButton("R")
+        #redRadioButton.toggled.connect(self.redImageSelector)
+        rowLayout.addWidget(redRadioButton)
+        self.redRBlist.append(redRadioButton)
+
+    #Adding buttons for green
+        greenRadioButton = QRadioButton("G")
+        #greenRadioButton.toggled.connect(self.greenImageSelector)
+        rowLayout.addWidget(greenRadioButton)
+        self.greenRBlist.append(greenRadioButton)
+
+    #Adding buttons for blue
+        blueRadioButton = QRadioButton("B")
+        #blueRadioButton.toggled.connect(self.greenImageSelector)
+        rowLayout.addWidget(blueRadioButton)
+        self.blueRBlist.append(blueRadioButton)
 
         row.setLayout(rowLayout)
         self.ViewList_Layout.addWidget(row)
@@ -153,12 +157,12 @@ class ImageViewerUi(QMainWindow):
 def main():
     """Main function"""
     #Create QApplication instance (remember 1 per project)
-    pycalc = QApplication(sys.argv)
+    CMPViewer = QApplication(sys.argv)
     #show the UI
     view = ImageViewerUi()
     view.show()
     #Execute the main loop
-    sys.exit(pycalc.exec_())
+    sys.exit(CMPViewer.exec_())
 
 if __name__=='__main__':
     main()
