@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import QPushButton
 from PyQt5.QtWidgets import QVBoxLayout
 from PyQt5.QtWidgets import QHBoxLayout
 from PyQt5.QtWidgets import QCheckBox
+from PyQt5.QtWidgets import QListView
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
 from PyQt5.QtGui import QPixmap
@@ -32,6 +33,7 @@ __author__ = "RL Pfeiffer"
 
 class ImageViewerUi(QMainWindow):
     rawImages = []
+    fileNameList = []
     grayRBlist = []
     redRBlist = []
     greenRBlist = []
@@ -85,22 +87,14 @@ class ImageViewerUi(QMainWindow):
 
         self.generalLayout.addWidget(self.ViewList_Box)
 
-        #if self.grayRB is None:
-        #    pass
-        #else:
-        #    print('Found grayRB')
-        #self.grayRB.toggled.connect(self.changeGrayscaleImage)
-
-
-    def chooseDisplayedImage(self, index):
+    def chooseDisplayImage(self, index):
         pixmap = QPixmap.fromImage(self.rawImages[index])
         self.display.setPixmap(pixmap)
         self.resize(pixmap.size())
         self.adjustSize()
 
-    def changeGrayscaleImage(self, imageItem):
-        #self.chooseDisplayedImage(imageItem.index().row())
-        print('Gray button toggled')
+    def chooseGrayscaleImage(self, index):
+        self.chooseDisplayImage(self.fileNameList[index])
 
     def _createDisplay(self):
         #Create display widget
@@ -117,7 +111,8 @@ class ImageViewerUi(QMainWindow):
         for fileName in fileNames[0]:
             self.importImageWrapper(fileName)
             self.colorRBs(fileName)
-        self.chooseDisplayedImage(0)
+            self.fileNameList.append(fileName)
+        self.chooseDisplayImage(0)
 
     def importImageWrapper(self, fileName):
         self.rawImages.append(QImage(fileName))
@@ -128,7 +123,7 @@ class ImageViewerUi(QMainWindow):
 
     #Adding buttons for grayscale
         grayRadioButton = QRadioButton("Gray")
-        grayRadioButton.toggled.connect(self.changeGrayscaleImage)
+        grayRadioButton.toggled.connect(self.chooseGrayscaleImage)
         rowLayout.addWidget(grayRadioButton)
         self.grayRBlist.append(grayRadioButton)
 
@@ -150,8 +145,13 @@ class ImageViewerUi(QMainWindow):
         rowLayout.addWidget(blueRadioButton)
         self.blueRBlist.append(blueRadioButton)
 
+    #Add Filenames associated with RBs
+        basefileName = os.path.basename(fileName)
+        rowLayout.addWidget(QLabel(basefileName))
+
         row.setLayout(rowLayout)
         self.ViewList_Layout.addWidget(row)
+
 
 #Client code
 def main():
