@@ -94,7 +94,8 @@ class ImageViewerUi(QMainWindow):
         self.adjustSize()
 
     def chooseGrayscaleImage(self, index):
-        self.chooseDisplayImage(self.fileNameList[index])
+        # just pass actual index, not filename
+        self.chooseDisplayImage(index)
 
     def _createDisplay(self):
         #Create display widget
@@ -108,22 +109,25 @@ class ImageViewerUi(QMainWindow):
 
     def openImages(self):
         fileNames = QFileDialog.getOpenFileNames(self, self.tr("Select image(s) to open"))
-        for fileName in fileNames[0]:
+        # pass both the filenames and their indexes to colorRBs
+        for index in range(len(fileNames[0])):
+            fileName = fileNames[0][index]
             self.importImageWrapper(fileName)
-            self.colorRBs(fileName)
+            self.colorRBs(fileName, index)
             self.fileNameList.append(fileName)
         self.chooseDisplayImage(0)
 
     def importImageWrapper(self, fileName):
         self.rawImages.append(QImage(fileName))
 
-    def colorRBs(self, fileName):
+    def colorRBs(self, fileName, index):
         row = QtWidgets.QGroupBox()
         rowLayout = QtWidgets.QHBoxLayout()
 
     #Adding buttons for grayscale
         grayRadioButton = QRadioButton("Gray")
-        grayRadioButton.toggled.connect(self.chooseGrayscaleImage)
+        # use a lambda to pass index to handler
+        grayRadioButton.toggled.connect(lambda: self.chooseGrayscaleImage(index))
         rowLayout.addWidget(grayRadioButton)
         self.grayRBlist.append(grayRadioButton)
 
