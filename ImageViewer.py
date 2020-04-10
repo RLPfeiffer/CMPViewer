@@ -54,7 +54,7 @@ class ImageViewerUi(QMainWindow):
         self._centralWidget = QScrollArea()
         self.setCentralWidget(self._centralWidget)
         self._centralWidget.setLayout(self.generalLayout)
-        self._centralWidget.setMinimumSize(2000, 800)
+        self._centralWidget.setMinimumSize(1500, 800)
 
 
         """Don't forget to actually create a display"""
@@ -108,6 +108,9 @@ class ImageViewerUi(QMainWindow):
 
     def openImages(self):
         fileNames = QFileDialog.getOpenFileNames(self, self.tr("Select image(s) to open"))
+        self.ImportLayout = QVBoxLayout()
+        self.column1 = QtWidgets.QButtonGroup()
+        self.ViewList_Layout.addLayout(self.ImportLayout)
         for index in range(len(fileNames[0])):
             fileName = fileNames[0][index]
             self.importImageWrapper(fileName)
@@ -121,12 +124,19 @@ class ImageViewerUi(QMainWindow):
     def colorRBs(self, fileName, index):
         row = QtWidgets.QGroupBox()
         rowLayout = QtWidgets.QHBoxLayout()
+        #column1 = QtWidgets.QButtonGroup()
+
+    #Add Filenames associated with RBs
+        basefileName = os.path.basename(fileName)
+        simpleName = os.path.splitext(basefileName)[0]
+        rowLayout.addWidget(QLabel(simpleName))
+
 
     #Adding buttons for grayscale
-        grayRadioButton = QRadioButton("Gray")
+        grayRadioButton = QRadioButton('gray')
         grayRadioButton.toggled.connect(lambda:self.chooseGrayscaleImage(index))
         rowLayout.addWidget(grayRadioButton)
-        self.grayRBlist.append(grayRadioButton)
+        self.column1.addButton(grayRadioButton)
 
     #Adding buttons for red
         redRadioButton = QRadioButton("R")
@@ -146,12 +156,10 @@ class ImageViewerUi(QMainWindow):
         rowLayout.addWidget(blueRadioButton)
         self.blueRBlist.append(blueRadioButton)
 
-    #Add Filenames associated with RBs
-        basefileName = os.path.basename(fileName)
-        rowLayout.addWidget(QLabel(basefileName))
-
         row.setLayout(rowLayout)
-        self.ViewList_Layout.addWidget(row)
+        self.ImportLayout.addWidget(row)
+
+
 
 
 #Client code
