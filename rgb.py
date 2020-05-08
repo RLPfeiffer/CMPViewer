@@ -1,12 +1,14 @@
 from PyQt5.QtGui import QImage
 import code
 
-# r_image = None
-# g_image = None
-# b_image = None
+r_image = None
+g_image = None
+b_image = None
 
 def create_composite_image(r_image, g_image, b_image):
     rgb_image = r_image.copy()
+    if g_image = None:
+        
     print('rgb_image' in locals())
     for x in range(r_image.width()):
         for y in range(r_image.height()):
