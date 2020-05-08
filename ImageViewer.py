@@ -34,10 +34,7 @@ __author__ = "RL Pfeiffer"
 class ImageViewerUi(QMainWindow):
     rawImages = []
     fileNameList = []
-    grayRBlist = []
-    redRBlist = []
-    greenRBlist = []
-    blueRBlist = []
+    rgbImages = []
     #redImageIndex = -1
     # greenImageIndex = -1
     # blueImageIndex = -1
@@ -87,19 +84,24 @@ class ImageViewerUi(QMainWindow):
 
         self.generalLayout.addWidget(self.ViewList_Box)
 
-    def chooseDisplayImage(self, index):
+    def chooseGrayscaleImage(self, index):
         pixmap = QPixmap.fromImage(self.rawImages[index])
-        self.display.setPixmap(pixmap)
-        self.resize(pixmap.size())
+        self.displayImage.setPixmap((pixmap).scaled(2000,5000, Qt.KeepAspectRatio))
         self.adjustSize()
 
-    def chooseGrayscaleImage(self, index):
-        self.chooseDisplayImage(index)
+    #def chooseRedImage(self, index):
 
     def _createDisplay(self):
         #Create display widget
-        self.display = QLabel()
-        #set display properties
+        self.display = QScrollArea()
+        self.displayImage = QLabel()
+
+        #Set up display window properties
+        self.display.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.display.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.display.setWidgetResizable(True)
+
+        self.display.setWidget(self.displayImage)
         self.display.setAlignment(Qt.AlignCenter)
         self.display.setMinimumSize(600, 1000)
 
@@ -110,16 +112,18 @@ class ImageViewerUi(QMainWindow):
         fileNames = QFileDialog.getOpenFileNames(self, self.tr("Select image(s) to open"))
         self.ImportLayout = QVBoxLayout()
         self.column1 = QtWidgets.QButtonGroup()
+        self.rColumn = QtWidgets.QButtonGroup()
         self.ViewList_Layout.addLayout(self.ImportLayout)
         for index in range(len(fileNames[0])):
             fileName = fileNames[0][index]
             self.importImageWrapper(fileName)
             self.colorRBs(fileName, index)
             self.fileNameList.append(fileName)
-        self.chooseDisplayImage(0)
+        self.chooseGrayscaleImage(0)
 
     def importImageWrapper(self, fileName):
         self.rawImages.append(QImage(fileName))
+        self.rgbImages.append(QImage(fileName))
 
     def colorRBs(self, fileName, index):
         row = QtWidgets.QGroupBox()
@@ -131,7 +135,6 @@ class ImageViewerUi(QMainWindow):
         simpleName = os.path.splitext(basefileName)[0]
         rowLayout.addWidget(QLabel(simpleName))
 
-
     #Adding buttons for grayscale
         grayRadioButton = QRadioButton('gray')
         grayRadioButton.toggled.connect(lambda:self.chooseGrayscaleImage(index))
@@ -140,21 +143,22 @@ class ImageViewerUi(QMainWindow):
 
     #Adding buttons for red
         redRadioButton = QRadioButton("R")
-        #redRadioButton.toggled.connect(self.redImageSelector)
+        redRadioButton.toggled.connect(lambda:self.chooseRedImage(index))
         rowLayout.addWidget(redRadioButton)
-        self.redRBlist.append(redRadioButton)
+        self.rColumn.addButton(redRadioButton)
 
-    #Adding buttons for green
-        greenRadioButton = QRadioButton("G")
-        #greenRadioButton.toggled.connect(self.greenImageSelector)
-        rowLayout.addWidget(greenRadioButton)
-        self.greenRBlist.append(greenRadioButton)
 
-    #Adding buttons for blue
-        blueRadioButton = QRadioButton("B")
-        #blueRadioButton.toggled.connect(self.greenImageSelector)
-        rowLayout.addWidget(blueRadioButton)
-        self.blueRBlist.append(blueRadioButton)
+    # #Adding buttons for green
+    #     greenRadioButton = QRadioButton("G")
+    #     #greenRadioButton.toggled.connect(self.greenImageSelector)
+    #     rowLayout.addWidget(greenRadioButton)
+    #     self.greenRBlist.append(greenRadioButton)
+    #
+    # #Adding buttons for blue
+    #     blueRadioButton = QRadioButton("B")
+    #     #blueRadioButton.toggled.connect(self.greenImageSelector)
+    #     rowLayout.addWidget(blueRadioButton)
+    #     self.blueRBlist.append(blueRadioButton)
 
         row.setLayout(rowLayout)
         self.ImportLayout.addWidget(row)
