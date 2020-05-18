@@ -2,6 +2,7 @@
 """ImageViewer is an initial core for opening and viewing CMP image stacks"""
 import sys
 import os
+from rgb import *
 
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtWidgets import QMainWindow
@@ -34,7 +35,9 @@ __author__ = "RL Pfeiffer"
 class ImageViewerUi(QMainWindow):
     rawImages = []
     fileNameList = []
-    rgbImages = []
+    r_image = None
+    g_image = None
+    b_image = None
     #redImageIndex = -1
     # greenImageIndex = -1
     # blueImageIndex = -1
@@ -89,7 +92,23 @@ class ImageViewerUi(QMainWindow):
         self.displayImage.setPixmap((pixmap).scaled(2000,5000, Qt.KeepAspectRatio))
         self.adjustSize()
 
-    #def chooseRedImage(self, index):
+    def chooseRedImage(self, index):
+        self.r_image = self.rawImages[index]
+        composite = create_composite_image(self.r_image, self.g_image, self.b_image)
+        pixmap = QPixmap.fromImage(composite)
+        self.displayImage.setPixmap(pixmap)
+
+    def chooseGreenImage(self, index):
+        self.g_image = self.rawImages[index]
+        composite = create_composite_image(self.r_image, self.g_image, self.b_image)
+        pixmap = QPixmap.fromImage(composite)
+        self.displayImage.setPixmap(pixmap)
+
+    def chooseBlueImage(self, index):
+        self.b_image = self.rawImages[index]
+        composite = create_composite_image(self.r_image, self.g_image, self.b_image)
+        pixmap = QPixmap.fromImage(composite)
+        self.displayImage.setPixmap(pixmap)
 
     def _createDisplay(self):
         #Create display widget
@@ -112,7 +131,9 @@ class ImageViewerUi(QMainWindow):
         fileNames = QFileDialog.getOpenFileNames(self, self.tr("Select image(s) to open"))
         self.ImportLayout = QVBoxLayout()
         self.column1 = QtWidgets.QButtonGroup()
-        self.rColumn = QtWidgets.QButtonGroup()
+        self.redRBlist = QtWidgets.QButtonGroup()
+        self.greenRBlist = QtWidgets.QButtonGroup()
+        self.blueRBlist = QtWidgets.QButtonGroup()
         self.ViewList_Layout.addLayout(self.ImportLayout)
         for index in range(len(fileNames[0])):
             fileName = fileNames[0][index]
@@ -122,8 +143,7 @@ class ImageViewerUi(QMainWindow):
         self.chooseGrayscaleImage(0)
 
     def importImageWrapper(self, fileName):
-        self.rawImages.append(QImage(fileName))
-        self.rgbImages.append(QImage(fileName))
+        self.rawImages.append(QImage(fileName).convertToFormat(QImage.Format_RGB32))
 
     def colorRBs(self, fileName, index):
         row = QtWidgets.QGroupBox()
@@ -145,20 +165,18 @@ class ImageViewerUi(QMainWindow):
         redRadioButton = QRadioButton("R")
         redRadioButton.toggled.connect(lambda:self.chooseRedImage(index))
         rowLayout.addWidget(redRadioButton)
-        self.rColumn.addButton(redRadioButton)
+        self.redRBlist.addButton(redRadioButton)
 
-
-    # #Adding buttons for green
-    #     greenRadioButton = QRadioButton("G")
-    #     #greenRadioButton.toggled.connect(self.greenImageSelector)
-    #     rowLayout.addWidget(greenRadioButton)
-    #     self.greenRBlist.append(greenRadioButton)
-    #
-    # #Adding buttons for blue
-    #     blueRadioButton = QRadioButton("B")
-    #     #blueRadioButton.toggled.connect(self.greenImageSelector)
-    #     rowLayout.addWidget(blueRadioButton)
-    #     self.blueRBlist.append(blueRadioButton)
+    #Adding buttons for green
+        greenRadioButton = QRadioButton("G")
+        greenRadioButton.toggled.connect(lambda:self.chooseGreenImage(index))
+        rowLayout.addWidget(greenRadioButton)
+        self.greenRBlist.addButton(greenRadioButton)
+    #Adding buttons for blue
+        blueRadioButton = QRadioButton("B")
+        blueRadioButton.toggled.connect(lambda:self.chooseBlueImage(index))
+        rowLayout.addWidget(blueRadioButton)
+        self.blueRBlist.addButton(blueRadioButton)
 
         row.setLayout(rowLayout)
         self.ImportLayout.addWidget(row)

@@ -4,8 +4,13 @@ import code
 from qimage2ndarray import *
 import time
 
-def create_composite_image(r_image, g_image, b_image):    
+
+def create_composite_image(r_image, g_image, b_image):
     # Get numpy representation of images for optimized color manipulation
+    r_image = r_image or g_image or b_image
+    g_image = g_image or r_image or b_image
+    b_image = b_image or r_image or g_image
+
     r_optimized = rgb_view(r_image)
     g_optimized = rgb_view(g_image)
     b_optimized = rgb_view(b_image)
@@ -24,7 +29,7 @@ def create_composite_image(r_image, g_image, b_image):
             composite_optimized[y, x, 0] = r
             composite_optimized[y, x, 1] = g
             composite_optimized[y, x, 2] = b
-    
+
     # Convert our composite back to QImage
     return array2qimage(composite_optimized)
 
