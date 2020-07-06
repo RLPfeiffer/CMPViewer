@@ -3,7 +3,7 @@ from PyQt5.QtGui import QColor
 import code
 from qimage2ndarray import *
 import time
-
+import cv2
 
 def create_composite_image(r_image, g_image, b_image):
     # Get numpy representation of images for optimized color manipulation
@@ -16,22 +16,12 @@ def create_composite_image(r_image, g_image, b_image):
     b_optimized = rgb_view(b_image)
 
     # Make an ndarray for the composite
-    composite_optimized = r_optimized.copy()
-
-    # Assign the composite pixels
-    for x in range(r_image.width()):
-        for y in range(r_image.height()):
-            # We need to calculate this pixel's composite color
-            r = r_optimized[y, x, 0]
-            g = g_optimized[y, x, 0]
-            b = b_optimized[y, x, 0]
-
-            composite_optimized[y, x, 0] = r
-            composite_optimized[y, x, 1] = g
-            composite_optimized[y, x, 2] = b
+    r,_,_ = cv2.split(r_optimized)
+    g,_,_ = cv2.split(g_optimized)
+    b,_,_ = cv2.split(b_optimized)
 
     # Convert our composite back to QImage
-    return array2qimage(composite_optimized)
+    return array2qimage(cv2.merge((b, g, r)))
 
 # def chooseRedImage(rImage):
 #     r_image = rImage
