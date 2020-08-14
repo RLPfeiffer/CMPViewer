@@ -21,7 +21,7 @@ def create_composite_image(r_image, g_image, b_image):
     b,_,_ = cv2.split(b_optimized)
 
     # Convert our composite back to QImage
-    return array2qimage(cv2.merge((b, g, r)))
+    return array2qimage(cv2.merge((r, g, b)))
 
 # def chooseRedImage(rImage):
 #     r_image = rImage

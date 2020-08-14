@@ -28,7 +28,7 @@ from PyQt5.QtGui import QPixmap
 from functools import partial
 
 __version__ = '1.0'
-__author__ = "RL Pfeiffer"
+__author__ = "RL Pfeiffer & NQN Studios"
 
 #QMainwindow subclass for calc GUI
 
@@ -46,7 +46,7 @@ class ImageViewerUi(QMainWindow):
     def __init__(self):
         """View Initializer"""
         super().__init__()
-        #Some main properties of the WindowsError
+        #Some main properties of the Window
         self.setWindowTitle('ImageViewer')
 
         #Set central widget and the general layout
@@ -96,19 +96,22 @@ class ImageViewerUi(QMainWindow):
         self.r_image = self.rawImages[index]
         composite = create_composite_image(self.r_image, self.g_image, self.b_image)
         pixmap = QPixmap.fromImage(composite)
-        self.displayImage.setPixmap(pixmap)
+        self.displayImage.setPixmap((pixmap).scaled(2000,5000, Qt.KeepAspectRatio))
+        self.adjustSize()
 
     def chooseGreenImage(self, index):
         self.g_image = self.rawImages[index]
         composite = create_composite_image(self.r_image, self.g_image, self.b_image)
         pixmap = QPixmap.fromImage(composite)
-        self.displayImage.setPixmap(pixmap)
+        self.displayImage.setPixmap((pixmap).scaled(2000,5000, Qt.KeepAspectRatio))
+        self.adjustSize()
 
     def chooseBlueImage(self, index):
         self.b_image = self.rawImages[index]
         composite = create_composite_image(self.r_image, self.g_image, self.b_image)
         pixmap = QPixmap.fromImage(composite)
-        self.displayImage.setPixmap(pixmap)
+        self.displayImage.setPixmap((pixmap).scaled(2000,5000, Qt.KeepAspectRatio))
+        self.adjustSize()
 
     def _createDisplay(self):
         #Create display widget
