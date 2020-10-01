@@ -72,8 +72,14 @@ class ImageViewerUi(QMainWindow):
 
         """create menu items"""
         openAct = QAction('Open Images', self)
+        openAct.setShortcut('Ctrl+O')
         openAct.triggered.connect(self.openImages)
         fileMenu.addAction(openAct)
+
+        closeAct = QAction('Close', self)
+        closeAct.setShortcut('Ctrl+Q')
+        closeAct.triggered.connect(sys.exit)
+        fileMenu.addAction(closeAct)
 
     def _createViewList(self):
         #create file view list
