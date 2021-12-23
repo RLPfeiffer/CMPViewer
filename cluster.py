@@ -6,17 +6,7 @@ import argparse
 import cv2
 
 clusterImgName = []
-clusterImages = []
-
-
-
-#Select images for clustering using GUI
-def openClustImages(self):
-	imgNames = QFileDialog.getOpenFileNames(self, self.tr("Select image(s) to cluster"))
-	for index in range(len(imgNames[0])):
-		imgName = imgNames[0][index]
-		self.clusterImgName.append(imgName)
-		self.clusterImageWrapper(imgName)
+clusterImages = []	 
 
 #pull all of the images for cluster as grayscale into an index
 def clusterImageWrapper(self, imgName):

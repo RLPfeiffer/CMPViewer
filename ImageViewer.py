@@ -3,6 +3,7 @@
 import sys
 import os
 from rgb import *
+from cluster import *
 
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtWidgets import QMainWindow
@@ -22,25 +23,25 @@ from PyQt5.QtWidgets import QVBoxLayout
 from PyQt5.QtWidgets import QHBoxLayout
 from PyQt5.QtWidgets import QCheckBox
 from PyQt5.QtWidgets import QListView
+from PyQt5.QtWidgets import QListWidget
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
 from PyQt5.QtGui import QPixmap
+from PyQt5.QtWidgets import QListWidgetItem
 from functools import partial
 
 __version__ = '1.0'
 __author__ = "RL Pfeiffer & NQN Studios"
 
-#QMainwindow subclass for calc GUI
 
 class ImageViewerUi(QMainWindow):
     rawImages = []
     fileNameList = []
+    clusterImgName = []
+    clusterImages = []
     r_image = None
     g_image = None
     b_image = None
-    #redImageIndex = -1
-    # greenImageIndex = -1
-    # blueImageIndex = -1
 
     """View Gui"""
     def __init__(self):
@@ -68,6 +69,7 @@ class ImageViewerUi(QMainWindow):
         self.menuBar = QMenuBar()
         menuBar.setNativeMenuBar(False)
         fileMenu = menuBar.addMenu('File')
+        clusterMenu = menuBar.addMenu('Cluster')
         self.generalLayout.addWidget(self.menuBar)
 
         """create menu items"""
@@ -80,6 +82,11 @@ class ImageViewerUi(QMainWindow):
         closeAct.setShortcut('Ctrl+Q')
         closeAct.triggered.connect(sys.exit)
         fileMenu.addAction(closeAct)
+
+        """Clustering options"""
+        selectImagesAct = QAction('Select Images', self)
+        selectImagesAct.triggered.connect(self.selectClustImages)
+        clusterMenu.addAction(selectImagesAct)
 
     def _createViewList(self):
         #create file view list
@@ -146,19 +153,25 @@ class ImageViewerUi(QMainWindow):
         self.ViewList_Layout.addLayout(self.ImportLayout)
         for index in range(len(fileNames[0])):
             fileName = fileNames[0][index]
+            basefileName = os.path.basename(fileName)
+            simpleName = os.path.splitext(basefileName)[0]
+            self.fileNameList.append(simpleName)
             self.importImageWrapper(fileName)
             self.colorRBs(fileName, index)
-            self.fileNameList.append(fileName)
         self.chooseGrayscaleImage(0)
 
     def importImageWrapper(self, fileName):
+        '''
+        Does something
+        :param str fineName: Filename to do something to
+        :return: Finished product
+        :rtype: QImage
+        '''
         self.rawImages.append(QImage(fileName).convertToFormat(QImage.Format_RGB32))
-
     def colorRBs(self, fileName, index):
         row = QtWidgets.QGroupBox()
         rowLayout = QtWidgets.QHBoxLayout()
-        #column1 = QtWidgets.QButtonGroup()
-
+    
     #Add Filenames associated with RBs
         basefileName = os.path.basename(fileName)
         simpleName = os.path.splitext(basefileName)[0]
@@ -190,8 +203,30 @@ class ImageViewerUi(QMainWindow):
         row.setLayout(rowLayout)
         self.ImportLayout.addWidget(row)
 
+     #Select images for clustering using GUI 
+    def selectClustImages(self):
+        '''
+        Select images for clustering using GUI
+        '''
+        self.clusterview = clusterSelect(self.fileNameList)
+        self.clusterview.show()
+        print("found")
 
-
+class clusterSelect(QWidget):
+    """
+    new popup window to select the images to be used for clustering
+    """
+    def __init__(self,fileNameList):
+        super().__init__()
+        layout = QVBoxLayout()
+        self.list = QListWidget()
+        self.list.addItems(fileNameList)
+        
+        self.setWindowFlags(Qt.Dialog | Qt.Tool)
+        layout.addWidget(self.list)
+        self.setLayout(layout)
+        print(fileNameList)
+ 
 
 #Client code
 def main():
