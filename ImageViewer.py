@@ -220,8 +220,13 @@ class clusterSelect(QWidget):
         super().__init__()
         layout = QVBoxLayout()
         self.list = QListWidget()
-        self.list.addItems(fileNameList)
-        
+        #self.list.addItems(fileNameList)
+        for items in fileNameList:
+            item = QtWidgets.QListWidgetItem(items)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Unchecked)
+            self.list.addItem(item)
+
         self.setWindowFlags(Qt.Dialog | Qt.Tool)
         layout.addWidget(self.list)
         self.setLayout(layout)
