@@ -37,8 +37,6 @@ __author__ = "RL Pfeiffer & NQN Studios"
 class ImageViewerUi(QMainWindow):
     rawImages = []
     fileNameList = []
-    clusterImgName = []
-    clusterImages = []
     r_image = None
     g_image = None
     b_image = None
@@ -210,28 +208,7 @@ class ImageViewerUi(QMainWindow):
         '''
         self.clusterview = clusterSelect(self.fileNameList)
         self.clusterview.show()
-        print("found")
-
-class clusterSelect(QWidget):
-    """
-    new popup window to select the images to be used for clustering
-    """
-    def __init__(self,fileNameList):
-        super().__init__()
-        layout = QVBoxLayout()
-        self.list = QListWidget()
-        #self.list.addItems(fileNameList)
-        for items in fileNameList:
-            item = QtWidgets.QListWidgetItem(items)
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Unchecked)
-            self.list.addItem(item)
-
-        self.setWindowFlags(Qt.Dialog | Qt.Tool)
-        layout.addWidget(self.list)
-        self.setLayout(layout)
-        print(fileNameList)
- 
+    
 
 #Client code
 def main():

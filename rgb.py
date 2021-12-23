@@ -23,25 +23,6 @@ def create_composite_image(r_image, g_image, b_image):
     # Convert our composite back to QImage
     return array2qimage(cv2.merge((r, g, b)))
 
-# def chooseRedImage(rImage):
-#     r_image = rImage
-#     create_composite_image(r_image)
-#     print('r_image' in locals())
-#     #code.interact(local=locals())
-
-# def chooseGreenImage(gImage):
-#     g_image = gImage
-#     create_composite_image(g_image)
-#     print('g_image' in locals())
-#     #code.interact(local=locals())
-#
-# def chooseBlueImage(bImage):
-#     b_image = bImage
-#     create_composite_image(b_image)
-#     print('b_image' in locals())
-#     #code.interact(local=locals())
-
-
 if __name__ == "__main__":
     # Load images and convert them to numpy-compatible pixel format.
     r_image = QImage("test_images/7564_12191_RLP_40x_05_TT.tif.tif").convertToFormat(QImage.Format_RGB32)
