@@ -37,8 +37,6 @@ __author__ = "RL Pfeiffer & NQN Studios"
 class ImageViewerUi(QMainWindow):
     rawImages = []
     fileNameList = []
-    clusterImgName = []
-    clusterImages = []
     r_image = None
     g_image = None
     b_image = None
@@ -162,9 +160,9 @@ class ImageViewerUi(QMainWindow):
 
     def importImageWrapper(self, fileName):
         '''
-        Does something
-        :param str fineName: Filename to do something to
-        :return: Finished product
+        Imports images into UI
+        :param str fileName: Filename designated by openImages
+        :return: viewable image with color select radio buttons
         :rtype: QImage
         '''
         self.rawImages.append(QImage(fileName).convertToFormat(QImage.Format_RGB32))
@@ -172,12 +170,12 @@ class ImageViewerUi(QMainWindow):
         row = QtWidgets.QGroupBox()
         rowLayout = QtWidgets.QHBoxLayout()
     
-    #Add Filenames associated with RBs
+        #Add Filenames associated with RBs
         basefileName = os.path.basename(fileName)
         simpleName = os.path.splitext(basefileName)[0]
         rowLayout.addWidget(QLabel(simpleName))
 
-    #Adding buttons for grayscale
+         #Adding buttons for grayscale
         grayRadioButton = QRadioButton('gray')
         grayRadioButton.toggled.connect(lambda:self.chooseGrayscaleImage(index))
         rowLayout.addWidget(grayRadioButton)
@@ -210,23 +208,7 @@ class ImageViewerUi(QMainWindow):
         '''
         self.clusterview = clusterSelect(self.fileNameList)
         self.clusterview.show()
-        print("found")
-
-class clusterSelect(QWidget):
-    """
-    new popup window to select the images to be used for clustering
-    """
-    def __init__(self,fileNameList):
-        super().__init__()
-        layout = QVBoxLayout()
-        self.list = QListWidget()
-        self.list.addItems(fileNameList)
-        
-        self.setWindowFlags(Qt.Dialog | Qt.Tool)
-        layout.addWidget(self.list)
-        self.setLayout(layout)
-        print(fileNameList)
- 
+    
 
 #Client code
 def main():
