@@ -54,10 +54,13 @@ class clusterSelect(QtWidgets.QWidget):
         layout.addWidget(self.button1)
         self.setLayout(layout)
 
-    def clusterOptions(self):
-        for item in range(self.clusterList()):
+    def clusterOptions(self, clusterList, index):
+        for item in range(clusterList):
             if item.checkState() == Qt.Checked:
                 self.clusterImgName.append(item)
+                self.clusterImages.append(self.rawImages[index])
+
+
 
 #pull all of the images for cluster as grayscale into an index
 def clusterImageWrapper(self, imgName):
