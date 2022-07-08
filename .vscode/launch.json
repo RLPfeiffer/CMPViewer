@@ -9,7 +9,17 @@
             "type": "python",
             "request": "launch",
             "program": "${file}",
-            "console": "integratedTerminal"
-        }
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Python: ImageViewer",
+            "type": "python",
+            "request": "launch",
+            "program": "ImageViewer.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+    
     ]
 }
