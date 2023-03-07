@@ -3,7 +3,7 @@
 import sys
 import os
 from rgb import *
-from cluster import *
+from clusterImgSelect import *
 
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtWidgets import QMainWindow
@@ -47,6 +47,7 @@ class ImageViewerUi(QMainWindow):
         """View Initializer"""
         super().__init__()
         # Some main properties of the Window
+        self.clusterview = None
         self.setWindowTitle('ImageViewer')
 
         # Set central widget and the general layout
@@ -54,7 +55,7 @@ class ImageViewerUi(QMainWindow):
         self._centralWidget = QScrollArea()
         self.setCentralWidget(self._centralWidget)
         self._centralWidget.setLayout(self.generalLayout)
-        self._centralWidget.setMinimumSize(1500, 800)
+        self._centralWidget.setMinimumSize(1500, 1000)
 
         """Don't forget to actually create a display"""
         self._createDisplay()
@@ -212,8 +213,9 @@ class ImageViewerUi(QMainWindow):
         '''
         Select images for clustering using GUI
         '''
-        self.clusterview = clusterSelect(self.fileNameList)
+        self.clusterview = clusterSelect(self.fileNameList, self.rawImages)
         self.clusterview.show()
+
 
 
 # Client code
