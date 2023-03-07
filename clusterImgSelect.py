@@ -37,7 +37,7 @@ class clusterSelect(QtWidgets.QWidget):
         widget = QWidget()
         self.button1 = QPushButton(widget)
         self.button1.setText("Select")
-        self.button1.clicked.connect(self.clusterOptions)
+        self.button1.clicked.connect(lambda: self.clusterOptions(self.clusterList.currentRow()))
 
         layout.addWidget(self.clusterList)
         layout.addWidget(self.button1)
@@ -47,11 +47,14 @@ class clusterSelect(QtWidgets.QWidget):
         for i in range(self.clusterList.count()):
             item = self.clusterList.item(i)
             if item.checkState() == Qt.Checked:
-                self.clusterImgName.append(item)
-                self.clusterImages.append(self.rawImages[index])
-                self.cluster = Cluster(self.clusterImgName, self.clusterImages)
-
+                self.clusterImgName.append(item.text())
+                self.clusterImages.append(self.rawImages[i])
+        print(self.clusterImgName)
+        print(self.clusterImages)
+        self.cluster = Cluster(self.clusterImgName, self.clusterImages)
         self.close()
+        self.cluster.show()
+
 
 # configure Images for kmeans and run kmeans
 def kmeansCluster(self, index):

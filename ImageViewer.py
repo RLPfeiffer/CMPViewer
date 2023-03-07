@@ -96,8 +96,25 @@ class ImageViewerUi(QMainWindow):
 
         self.ViewList_Layout.setSpacing(2)
         self.ViewList_Layout.setContentsMargins(2, 2, 2, 2)
-
         self.generalLayout.addWidget(self.ViewList_Box)
+
+
+    def _createDisplay(self):
+        # Create display widget
+        self.display = QScrollArea()
+        self.displayImage = QLabel()
+
+        # Set up display window properties
+        self.display.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.display.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.display.setWidgetResizable(True)
+
+        self.display.setWidget(self.displayImage)
+        self.display.setAlignment(Qt.AlignCenter)
+        self.display.setMinimumSize(600, 1000)
+
+        # add this display to the general layout
+        self.generalLayout.addWidget(self.display)
 
     def chooseGrayscaleImage(self, index):
         img_array = self.rawImages[index]
@@ -128,23 +145,6 @@ class ImageViewerUi(QMainWindow):
         pixmap = QPixmap.fromImage(composite)
         self.displayImage.setPixmap((pixmap).scaled(2000, 5000, Qt.KeepAspectRatio))
         self.adjustSize()
-
-    def _createDisplay(self):
-        # Create display widget
-        self.display = QScrollArea()
-        self.displayImage = QLabel()
-
-        # Set up display window properties
-        self.display.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.display.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.display.setWidgetResizable(True)
-
-        self.display.setWidget(self.displayImage)
-        self.display.setAlignment(Qt.AlignCenter)
-        self.display.setMinimumSize(600, 1000)
-
-        # add this display to the general layout
-        self.generalLayout.addWidget(self.display)
 
     def openImages(self):
         fileNames = QFileDialog.getOpenFileNames(self, self.tr("Select image(s) to open"))
