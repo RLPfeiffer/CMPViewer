@@ -7,34 +7,25 @@ class ImageViewer:
         self.root = root
         self.root.title("ImageViewer")
 
-        # Dictionary to organize images by category
-        self.images_by_category = {
-            "Raw Image Data": [],  # All loaded images
-            "Processed Images": [],  # Images used for clustering
-            "Image Clusters": []  # Combined cluster overlays (cell type classes)
+        # Dictionary to organize images by type
+        self.images_by_type = {
+            "grayscale": [],
+            "rgb": [],
+            "clustered": []
         }
 
-        # Sample data to simulate your workflow (replace with actual image loading logic)
+        # Sample image data (replace with actual image loading logic)
         self.load_sample_images()
 
         # GUI Setup
         self.setup_ui()
 
     def load_sample_images(self):
-        # Simulate loading raw images (all loaded images)
+        # Simulate loading images with types
         for i in range(5):
-            self.images_by_category["Raw Image Data"].append(f"raw_image_{i}.png")
-
-        # Simulate processed images (subset of raw images used for clustering)
-        # For this example, let's assume images 0, 1, and 3 were used for clustering
-        self.images_by_category["Processed Images"] = [
-            self.images_by_category["Raw Image Data"][i] for i in [0, 1, 3]
-        ]
-
-        # Simulate image clusters (combined cluster overlays for cell type classes)
-        # Based on your log, clusters are toggled and combined; here we simulate the result
-        for i in range(3):
-            self.images_by_category["Image Clusters"].append(f"cluster_overlay_{i}.png")
+            self.images_by_type["grayscale"].append(f"gray_image_{i}.png")
+            self.images_by_type["rgb"].append(f"rgb_image_{i}.png")
+            self.images_by_type["clustered"].append(f"clustered_image_{i}.png")
 
     def setup_ui(self):
         # Image Display Frame
@@ -47,10 +38,10 @@ class ImageViewer:
         self.control_frame = tk.Frame(self.root)
         self.control_frame.pack(side=tk.RIGHT, padx=10, pady=10)
 
-        # Category Selection
-        tk.Label(self.control_frame, text="Select Image Category").pack()
-        self.category_var = tk.StringVar(value="Raw Image Data")
-        tk.OptionMenu(self.control_frame, self.category_var, "Raw Image Data", "Processed Images", "Image Clusters",
+        # Image Type Selection
+        tk.Label(self.control_frame, text="Select Image Type").pack()
+        self.type_var = tk.StringVar(value="grayscale")
+        tk.OptionMenu(self.control_frame, self.type_var, "grayscale", "rgb", "clustered",
                       command=self.update_image_list).pack()
 
         # Image Selection
@@ -64,10 +55,9 @@ class ImageViewer:
         tk.Button(self.control_frame, text="Display Image", command=self.display_image).pack(pady=5)
 
     def update_image_list(self, *args):
-        selected_category = self.category_var.get()
-        self.image_dropdown['values'] = self.images_by_category[selected_category]
-        self.image_var.set(
-            self.images_by_category[selected_category][0] if self.images_by_category[selected_category] else "")
+        selected_type = self.type_var.get()
+        self.image_dropdown['values'] = self.images_by_type[selected_type]
+        self.image_var.set(self.images_by_type[selected_type][0] if self.images_by_type[selected_type] else "")
 
     def display_image(self):
         selected_image = self.image_var.get()
