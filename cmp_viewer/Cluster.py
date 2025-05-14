@@ -1,10 +1,10 @@
 import typing
-from typing import Callable, Tuple, List, Any
+from typing import Callable, Tuple, List, Any, Dict
 import collections
 
 import numpy as np
 from numpy.typing import NDArray
-from PyQt5.QtGui import QPixmap, QImage, qRgb
+from PyQt5.QtGui import QPixmap, QImage, qRgb, QColor
 from sklearn.cluster import KMeans
 from PIL import Image
 from PyQt5.QtCore import Qt
@@ -20,14 +20,17 @@ class KMeansSettings(typing.NamedTuple):
     random_state: int
 
 class Cluster(QWidget):
-
     def __init__(self, clusterImgName, clusterImages: cmp_viewer.models.ImageSet, selected_mask: NDArray[bool],
-                 on_cluster_callback: Callable[[...], Tuple[NDArray[int], Any]]):
+                 on_cluster_callback: Callable[[NDArray[int], Any], Tuple[NDArray[int], Any]]):
         super().__init__()
         self.on_cluster_callback = on_cluster_callback
         self.clusterImgName = clusterImgName
         self._image_set = clusterImages
         self._mask = selected_mask
+        self.labels = None  # Store current cluster labels
+        self.masks = None  # Store masks and colors for each cluster: Dict[int, Tuple[NDArray[bool], QColor]]
+        self.undo_stack = []  # Stack to store previous states (labels, masks)
+        self.undo_stack_max_size = 10  # Limit undo stack size
 
         layout = QVBoxLayout()
         self.clusterList = QListWidget()
@@ -49,16 +52,12 @@ class Cluster(QWidget):
         if not ok:
             return
 
-        #pixels = self.clusterImages.reshape((-1, 1))
+        # Pixels from selected masked regions
         pixels = self._image_set.images[self._mask, :, :].reshape(self._mask.sum(), -1)
 
-        # Perform k-means clustering on each image in the list
-        #for i, img in enumerate(self.clusterImages):
-            # Reshape image into 2D array
-        #    pixels = img.reshape((-1, 1))
+        if pixels.size == 0:
+            return
 
-        # Convert to float32 for k-means function
-        # pixels = np.float32(pixels)
         settings = KMeansSettings(n_clusters=k, init="random", n_init=5, max_iter=100, tol=1e-3, random_state=42)
 
         # Perform k-means clustering
@@ -71,10 +70,90 @@ class Cluster(QWidget):
         kmeans.fit(pixels.T)
 
         # Get the label array and reshape it to match the original image shape
-        labels = kmeans.labels_.reshape(self._image_set.image_shape)
+        self.labels = kmeans.labels_.reshape(self._image_set.image_shape)
+        self.masks = self.generate_masks(self.labels, settings.n_clusters)
 
-        self.on_cluster_callback(labels, settings)
+        # Save initial state to undo stack
+        self.undo_stack.append((np.copy(self.labels), {k: (mask.copy(), color) for k, (mask, color) in self.masks.items()}))
+        if len(self.undo_stack) > self.undo_stack_max_size:
+            self.undo_stack.pop(0)
 
+        # Call the callback with labels and settings
+        self.on_cluster_callback(self.labels, settings)
 
+    def generate_masks(self, labels: NDArray[int], n_clusters: int) -> Dict[int, Tuple[NDArray[bool], QColor]]:
+        """Generate binary masks and assign a unique color for each cluster"""
+        masks = {}
+        unique_labels = np.unique(labels)
+        for idx, cluster_id in enumerate(unique_labels):
+            mask = (labels == cluster_id)
+            # Generate a unique color for each cluster using a hue-based approach
+            hue = (idx * 137.5) % 360  # Golden angle approximation for distinct hues
+            color = QColor.fromHsv(int(hue), 200, 200)  # High saturation and value for vibrant colors
+            masks[cluster_id] = (mask, color)
+        return masks
 
+    def cluster_on_mask(self, mask: NDArray[bool], n_clusters: int) -> Tuple[NDArray[int], KMeansSettings]:
+        """Run k-means clustering on pixels within the given mask using averaged image data"""
+        if self._image_set.images.size == 0 or not np.any(mask):
+            return None, None
 
+        # Get the selected images
+        selected_images = self._image_set.images[self._mask, :, :]
+        if selected_images.size == 0:
+            return None, None
+
+        # Ensure mask matches the image dimensions (height, width)
+        if mask.shape != selected_images.shape[1:]:
+            raise ValueError(f"Mask shape {mask.shape} does not match image dimensions {selected_images.shape[1:]}")
+
+        # Average pixel values across selected images within the mask
+        masked_images = [img[mask] for img in selected_images]
+        if not masked_images or all(len(m) == 0 for m in masked_images):
+            return None, None
+        avg_masked_pixels = np.mean(np.vstack(masked_images), axis=0)
+        avg_masked_pixels = avg_masked_pixels.reshape(-1, 1)
+
+        # Debug: Verify sizes
+        print(f"Number of masked pixels: {avg_masked_pixels.shape[0]}")
+        print(f"Number of True values in mask: {np.sum(mask)}")
+
+        # Run k-means on averaged masked pixels
+        settings = KMeansSettings(n_clusters=n_clusters, init="random", n_init=5, max_iter=100, tol=1e-3, random_state=42)
+        kmeans = KMeans(n_clusters=settings.n_clusters,
+                        init=settings.init,
+                        n_init=settings.n_init,
+                        max_iter=settings.max_iter,
+                        tol=settings.tol,
+                        random_state=settings.random_state)
+        sub_labels = kmeans.fit_predict(avg_masked_pixels)
+
+        # Debug: Verify sub_labels size
+        print(f"Sub_labels size: {sub_labels.shape[0]}")
+
+        # Create new labels array, preserving original labels outside the mask
+        new_labels = np.copy(self.labels)
+        max_label = np.max(self.labels) if self.labels is not None else -1
+        new_labels[mask] = sub_labels + max_label + 1  # Offset new labels to avoid overlap
+
+        # Update masks with the new labels
+        self.labels = new_labels
+        self.masks = self.generate_masks(self.labels, len(np.unique(new_labels)))
+
+        # Save state to undo stack
+        self.undo_stack.append((np.copy(self.labels), {k: (mask.copy(), color) for k, (mask, color) in self.masks.items()}))
+        if len(self.undo_stack) > self.undo_stack_max_size:
+            self.undo_stack.pop(0)
+
+        return new_labels, settings
+
+    def undo_clustering(self):
+        """Revert to the previous clustering state"""
+        if len(self.undo_stack) <= 1:  # At least one state must remain
+            return False
+        self.undo_stack.pop()  # Remove current state
+        prev_labels, prev_masks = self.undo_stack[-1]  # Get previous state
+        self.labels = np.copy(prev_labels)
+        self.masks = prev_masks
+        self.on_cluster_callback(self.labels, KMeansSettings(n_clusters=len(np.unique(self.labels)), init="random", n_init=5, max_iter=100, tol=1e-3, random_state=42))
+        return True
