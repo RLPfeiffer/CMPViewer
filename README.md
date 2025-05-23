@@ -1,4 +1,4 @@
-# CMP Viewer
+# CMP Viewer (v1.5.2)
 
 A cross-platform tool for visualizing and analyzing multidimensional images with clustering capabilities, written in Python by Becca Pfeiffer and Nat Quayle Nelson.
 
@@ -39,13 +39,22 @@ main()
 
 ## Dependencies
 
-- numpy
+- numpy (>=2.2.5)
 - PyQt5
 - scikit-learn
-- Pillow
+- Pillow (>=11.2.1)
 - opencv-python (for mac install use opencv-python-headless)
-- nornir_imageregistration
+- nornir_imageregistration (from GitHub)
+- nornir_shared (from GitHub)
+- nornir_pools (from GitHub)
 - qimage2ndarray
+- matplotlib (>=3.10.3)
+- scipy (>=1.15.3)
+- scikit-image (>=0.25.2)
+- imageio (>=2.37.0)
+- tifffile (>=2025.5.10)
+- networkx (>=3.4.2)
+- pydantic (>=2.11.4)
 
 ## License
 

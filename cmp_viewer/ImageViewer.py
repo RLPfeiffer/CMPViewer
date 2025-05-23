@@ -40,7 +40,7 @@ from PyQt5.QtGui import QPixmap, qRgb
 from PyQt5.QtWidgets import QMessageBox
 from functools import partial
 
-__version__ = '1.0'
+__version__ = '1.5.2'
 __author__ = "RL Pfeiffer & NQN Studios"
 
 class ImageViewerUi(QMainWindow):
@@ -60,8 +60,6 @@ class ImageViewerUi(QMainWindow):
     last_grayscale_index = None  # Track the last grayscale image index
     last_rgb_state = None  # Track the last RGB state
     overlay_items = {}  # Track overlay items in the scene by cluster ID
-    imageSelector = None  # New combo box for image selection
-
     """View Gui"""
 
     def __init__(self, starting_images_folder=None):
@@ -70,13 +68,33 @@ class ImageViewerUi(QMainWindow):
 
         self._image_set = models.ImageSet()
         self.clusterview = None
+        self.imageSelector = None  # Set to None since we're not using it
         self.setWindowTitle('ImageViewer')
 
         self.centralWidget = QWidget()
         self.setCentralWidget(self.centralWidget)
 
+        # Create main horizontal layout
         self.generalLayout = QHBoxLayout()
         self.centralWidget.setLayout(self.generalLayout)
+
+        # Create a vertical layout for the left side controls
+        self.leftControlsLayout = QVBoxLayout()
+
+        # Create a widget to hold the left controls layout
+        self.leftControlsWidget = QWidget()
+        self.leftControlsWidget.setLayout(self.leftControlsLayout)
+
+        # Create a scroll area for the left controls
+        self.leftControlsScrollArea = QScrollArea()
+        self.leftControlsScrollArea.setWidget(self.leftControlsWidget)
+        self.leftControlsScrollArea.setWidgetResizable(True)
+        self.leftControlsScrollArea.setFixedWidth(400)  # Fixed width to prevent overlap
+        self.leftControlsScrollArea.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.leftControlsScrollArea.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        # Add the left controls scroll area to the main layout
+        self.generalLayout.addWidget(self.leftControlsScrollArea)
 
         self.centralWidget.setMinimumSize(1500, 1000)
 
@@ -85,13 +103,7 @@ class ImageViewerUi(QMainWindow):
         self._createViewList()
         self._createIterativeClusteringControls()
 
-        if starting_images_folder is not None:
-            if not os.path.isdir(starting_images_folder):
-                print(f"Starting images folder is not a directory: {starting_images_folder}")
-            else:
-                search_path = os.path.join(starting_images_folder, "*.tif")
-                filenames = glob.glob(search_path)
-                self.open_images(filenames)
+        # Removed automatic image loading to ensure no images are open on startup
 
     def _createMenuBar(self):
         """Create a menubar"""
@@ -122,7 +134,7 @@ class ImageViewerUi(QMainWindow):
 
         closeAct = QAction('Close', self)
         closeAct.setShortcut('Ctrl+Q')
-        closeAct.triggered.connect(sys.exit)
+        closeAct.triggered.connect(self.close)
         fileMenu.addAction(closeAct)
 
         selectImagesAct = QAction('Select Images', self)
@@ -131,24 +143,31 @@ class ImageViewerUi(QMainWindow):
 
     def _createViewList(self):
         self.ViewList_Box = QtWidgets.QGroupBox('Images')
-        self.ViewList_Box.setMinimumSize(400, 200)
+        # Remove the maximum height restriction to allow the box to expand as needed
         self.ViewList_Layout = QVBoxLayout()
         self.ViewList_Box.setLayout(self.ViewList_Layout)
 
-        # Add image selector combo box
-        self.imageSelector = QComboBox()
-        self.imageSelector.addItem("Select Image")
-        self.imageSelector.currentTextChanged.connect(self.on_image_selected)
-        self.ViewList_Layout.addWidget(QLabel("Select Image to Display"))
-        self.ViewList_Layout.addWidget(self.imageSelector)
-
         # Raw Image Data section
         self.rawImageGroup = QtWidgets.QGroupBox('Raw Image Data')
-        rawLayout = QVBoxLayout()
-        self.rawImageGroup.setLayout(rawLayout)
+        self.rawImageGroup.setMinimumHeight(200)  # Set larger minimum height to ensure visibility
+        self.rawImageGroup.setVisible(True)  # Ensure the group box is visible
+        self.rawLayout = QVBoxLayout()  # Make rawLayout an instance variable
+        self.rawImageGroup.setLayout(self.rawLayout)
         self.ViewList_Layout.addWidget(self.rawImageGroup)
 
-        self.generalLayout.addWidget(self.ViewList_Box)
+        # Initialize ImportLayout for radio buttons inside rawLayout
+        self.ImportLayout = QVBoxLayout()
+        self.ImportLayout.setSpacing(10)  # Add spacing between radio button rows
+        self.rawLayout.addLayout(self.ImportLayout)
+
+        # Initialize button groups for radio buttons
+        self.column1 = QtWidgets.QButtonGroup()
+        self.redRBlist = QtWidgets.QButtonGroup()
+        self.greenRBlist = QtWidgets.QButtonGroup()
+        self.blueRBlist = QtWidgets.QButtonGroup()
+
+        # Add to the left controls layout instead of directly to generalLayout
+        self.leftControlsLayout.addWidget(self.ViewList_Box)
 
     def _createDisplay(self):
         self.display = QScrollArea()
@@ -164,11 +183,11 @@ class ImageViewerUi(QMainWindow):
         self.display.setAlignment(Qt.AlignCenter)
         self.display.setMinimumSize(1100, 1000)
 
-        self.generalLayout.addWidget(self.display)
+        # Add the display to the general layout with a stretch factor to give it priority
+        self.generalLayout.addWidget(self.display, 1)  # Stretch factor of 1 makes it expand
 
     def _createIterativeClusteringControls(self):
         self.iterativeClusterBox = QtWidgets.QGroupBox('Iterative Clustering')
-        self.iterativeClusterBox.setMinimumSize(400, 350)
         self.iterativeClusterLayout = QVBoxLayout()
         self.iterativeClusterBox.setLayout(self.iterativeClusterLayout)
 
@@ -213,7 +232,8 @@ class ImageViewerUi(QMainWindow):
         self.undoButton.clicked.connect(self.undo_clustering)
         self.iterativeClusterLayout.addWidget(self.undoButton)
 
-        self.generalLayout.addWidget(self.iterativeClusterBox)
+        # Add to the left controls layout instead of directly to generalLayout
+        self.leftControlsLayout.addWidget(self.iterativeClusterBox)
 
     def chooseGrayscaleImage(self, index):
         if self.last_grayscale_index == index and self.last_pixmap is not None:
@@ -296,30 +316,36 @@ class ImageViewerUi(QMainWindow):
         self.open_images(results[0])
 
     def open_images(self, filenames: list[str]):
-        self.ImportLayout = QVBoxLayout()
+        # Clear existing ImportLayout
+        while self.ImportLayout.count():
+            item = self.ImportLayout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Clear button groups
         self.column1 = QtWidgets.QButtonGroup()
         self.redRBlist = QtWidgets.QButtonGroup()
         self.greenRBlist = QtWidgets.QButtonGroup()
         self.blueRBlist = QtWidgets.QButtonGroup()
-        self.ViewList_Layout.addLayout(self.ImportLayout)
 
-        # Populate image selector
+        # Populate data structures
+        self.fileNameList.clear()
+        self.rawImages.clear()
         for index, filename in enumerate(filenames):
             basefileName = os.path.basename(filename)
             simpleName = os.path.splitext(basefileName)[0]
             self.fileNameList.append(simpleName)
             self.rawImages.append(cv2.imread(filename, cv2.IMREAD_GRAYSCALE))
-            self.imageSelector.addItem(simpleName, index)
 
-        # Default to first image
-        if filenames:
-            self.on_image_selected(self.fileNameList[0])
-
+        # Process images for display
         for index, filename in enumerate(filenames):
-            basefileName = os.path.basename(filename)
-            simpleName = os.path.splitext(basefileName)[0]
             self.importImageWrapper(filename)
             self.colorRBs(filename, index)
+
+        # Default to first image
+        if filenames and self.column1.buttons() and len(self.column1.buttons()) > 0:
+            # Select the first image's grayscale radio button
+            self.column1.buttons()[0].setChecked(True)
 
     def importImageWrapper(self, fileName):
         '''
@@ -333,7 +359,10 @@ class ImageViewerUi(QMainWindow):
         self._image_set.add_image(image_float)
 
     def colorRBs(self, fileName, index):
+        print(f"Creating radio buttons for image {index}: {fileName}")
+
         row = QtWidgets.QGroupBox()
+        row.setMinimumHeight(30)  # Set minimum height to ensure visibility
         rowLayout = QHBoxLayout()
 
         basefileName = os.path.basename(fileName)
@@ -344,6 +373,7 @@ class ImageViewerUi(QMainWindow):
         grayRadioButton.toggled.connect(lambda: self.chooseGrayscaleImage(index))
         rowLayout.addWidget(grayRadioButton)
         self.column1.addButton(grayRadioButton)
+        print(f"Added gray radio button for image {index}")
 
         redRadioButton = QRadioButton("R")
         redRadioButton.toggled.connect(lambda: self.chooseRedImage(index))
@@ -362,6 +392,18 @@ class ImageViewerUi(QMainWindow):
 
         row.setLayout(rowLayout)
         self.ImportLayout.addWidget(row)
+        print(f"Added row with radio buttons to ImportLayout for image {index}")
+
+        # Force update to ensure the radio buttons are displayed
+        self.ImportLayout.update()
+        self.rawLayout.update()
+        self.rawImageGroup.update()
+
+        # Print the number of buttons in each group for debugging
+        print(f"Number of buttons in column1: {len(self.column1.buttons())}")
+        print(f"Number of buttons in redRBlist: {len(self.redRBlist.buttons())}")
+        print(f"Number of buttons in greenRBlist: {len(self.greenRBlist.buttons())}")
+        print(f"Number of buttons in blueRBlist: {len(self.blueRBlist.buttons())}")
 
     def save_clustered_image(self):
         if self._clustered_image is None:
@@ -381,10 +423,19 @@ class ImageViewerUi(QMainWindow):
             self._clustered_image.save(file_name)
             QtWidgets.QMessageBox.information(self, "Success", f"Clustered image saved to {file_name}")
 
-    def close_images(self):
+    def close_images(self, show_message=True):
+        """
+        Close all open images and reset the viewer.
+
+        This method clears all image data, resets UI elements, and optionally
+        shows a success message.
+
+        Args:
+            show_message (bool, optional): Whether to show a success message. 
+                                          Defaults to True.
+        """
         try:
             self.opacitySlider.valueChanged.disconnect()
-            self.imageSelector.currentTextChanged.disconnect()
         except Exception:
             pass
 
@@ -409,8 +460,6 @@ class ImageViewerUi(QMainWindow):
         self._image_set = models.ImageSet()
         self.displayImage.clear()
 
-        self.imageSelector.clear()
-        self.imageSelector.addItem("Select Image")
         self.clusterSelectCombo.clear()
         self.clusterSelectCombo.addItem("Select Cluster")
         self.subClustersInput.clear()
@@ -423,21 +472,35 @@ class ImageViewerUi(QMainWindow):
             if item.widget():
                 item.widget().deleteLater()
 
-        self.ImportLayout = QVBoxLayout()
-        self.ViewList_Layout.addLayout(self.ImportLayout)
+        # Reset button groups
         self.column1 = QtWidgets.QButtonGroup()
         self.redRBlist = QtWidgets.QButtonGroup()
         self.greenRBlist = QtWidgets.QButtonGroup()
         self.blueRBlist = QtWidgets.QButtonGroup()
 
         self.opacitySlider.valueChanged.connect(self.update_mask_opacity)
-        self.imageSelector.currentTextChanged.connect(self.on_image_selected)
-        QMessageBox.information(self, "Success", "All images have been closed.")
+
+        if show_message:
+            QMessageBox.information(self, "Success", "All images have been closed.")
+
+    def closeEvent(self, event):
+        """
+        Handle the window close event.
+
+        This method is called automatically when the window is closed.
+        It ensures all images are cleared before the application exits.
+
+        Args:
+            event (QCloseEvent): The close event.
+        """
+        # Clear all images before closing, but don't show a message
+        self.close_images(show_message=False)
+        # Accept the close event to allow the window to close
+        event.accept()
 
     def reset_viewer(self):
         try:
             self.opacitySlider.valueChanged.disconnect()
-            self.imageSelector.currentTextChanged.disconnect()
         except Exception:
             pass
 
@@ -462,8 +525,7 @@ class ImageViewerUi(QMainWindow):
         self._image_set = models.ImageSet()
         self.displayImage.clear()
 
-        self.imageSelector.clear()
-        self.imageSelector.addItem("Select Image")
+        # Clear cluster-related UI elements
         self.clusterSelectCombo.clear()
         self.clusterSelectCombo.addItem("Select Cluster")
         self.subClustersInput.clear()
@@ -471,15 +533,33 @@ class ImageViewerUi(QMainWindow):
         self.opacitySlider.setValue(self._mask_opacity)
         self.exportFormatCombo.setCurrentText("PNG")
 
-        while self.generalLayout.count():
-            item = self.generalLayout.takeAt(0)
+        # Clear the ImportLayout (radio buttons)
+        while self.ImportLayout.count():
+            item = self.ImportLayout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
+        # Reset button groups
+        self.column1 = QtWidgets.QButtonGroup()
+        self.redRBlist = QtWidgets.QButtonGroup()
+        self.greenRBlist = QtWidgets.QButtonGroup()
+        self.blueRBlist = QtWidgets.QButtonGroup()
+
+        # Remove widgets from generalLayout but keep the layout structure
+        if self.leftControlsScrollArea in self.generalLayout:
+            self.generalLayout.removeWidget(self.leftControlsScrollArea)
+        if self.display in self.generalLayout:
+            self.generalLayout.removeWidget(self.display)
+
+        # Recreate the display
         self._createDisplay()
-        self._createMenuBar()
-        self._createViewList()
-        self._createIterativeClusteringControls()
+
+        # Re-add the left controls scroll area to the main layout
+        self.generalLayout.insertWidget(0, self.leftControlsScrollArea)
+
+        # Reconnect signals
+        self.opacitySlider.valueChanged.connect(self.update_mask_opacity)
+
         QMessageBox.information(self, "Success", "Viewer has been reset.")
 
     def selectClustImages(self):
@@ -501,8 +581,13 @@ class ImageViewerUi(QMainWindow):
         self.clusterview.show()
 
     def on_cluster_callback(self, labels: NDArray[int], settings: typing.Any):
-        pillow_img = cmp_viewer.numpy_labels_to_pillow_image(labels)
-        if isinstance(settings, KMeansSettings):
+        if self.clusterview is None:
+            print("Cannot process cluster callback: Clusterview is None.")
+            return
+
+        # Use Cluster class to create the label image
+        pillow_img = self.clusterview.create_label_image(labels, len(np.unique(labels)))
+        if isinstance(settings, KMeansSettings) or isinstance(settings, ISODATASettings):
             self._masks = self.clusterview.masks
             self.clusterSelectCombo.clear()
             self.clusterSelectCombo.addItem("Select Cluster")
@@ -590,6 +675,10 @@ class ImageViewerUi(QMainWindow):
             print("Cannot update mask opacity: Clustered image or number of labels is not set.")
 
     def export_cluster_masks(self):
+        if self.clusterview is None:
+            QMessageBox.warning(self, "No Clustering Data", "Please run clustering first.")
+            return
+
         if self._masks is None:
             QMessageBox.warning(self, "No Masks Available", "Please run clustering to generate masks before exporting.")
             return
@@ -603,7 +692,6 @@ class ImageViewerUi(QMainWindow):
             return
 
         file_format = self.exportFormatCombo.currentText().lower()
-        file_ext = ".tif" if file_format == "tiff" else f".{file_format}"
 
         progress = QProgressDialog("Exporting cluster masks...", "Cancel", 0, len(self._visible_clusters), self)
         progress.setWindowModality(Qt.WindowModal)
@@ -612,14 +700,14 @@ class ImageViewerUi(QMainWindow):
         for i, cluster_id in enumerate(self._visible_clusters):
             if progress.wasCanceled():
                 break
-            mask, _ = self._masks.get(cluster_id, (None, None))
-            if mask is None:
-                continue
 
-            mask_array = (mask * 255).astype(np.uint8)
-            mask_image = Image.fromarray(mask_array, mode='L')
-            output_path = os.path.join(output_dir, f"cluster_{cluster_id}_mask{file_ext}")
-            mask_image.save(output_path)
+            # Use Cluster class to export the mask
+            output_path = os.path.join(output_dir, f"cluster_{cluster_id}_mask")
+            success = self.clusterview.export_cluster_mask(cluster_id, output_path, file_format)
+
+            if not success:
+                print(f"Failed to export mask for cluster {cluster_id}")
+
             progress.setValue(i + 1)
 
         if not progress.wasCanceled():
@@ -632,27 +720,26 @@ class ImageViewerUi(QMainWindow):
             print("Cannot show label image: Image or num_labels is None.")
             return
 
+        if self.clusterview is None:
+            print("Cannot show label image: Clusterview is None.")
+            return
+
         base_image_changed = self._clustered_image != img or self._num_labels != num_labels
         if base_image_changed:
             self._clustered_image = img
             self._num_labels = num_labels
-            self._color_table = [qRgb(int((i/num_labels) * 255), int((i/num_labels) * 255), int((i/num_labels-1) * 255)) for i in range(num_labels)]
 
-            palette = []
-            for rgb in self._color_table:
-                r = (rgb >> 16) & 0xFF
-                g = (rgb >> 8) & 0xFF
-                b = rgb & 0xFF
-                palette.extend([r, g, b])
+            # Use Cluster class to prepare the image and get the color table
+            prepared_img, self._color_table = self.clusterview.prepare_label_image_for_display(img, num_labels)
+            self._clustered_image = prepared_img
 
-            if self._clustered_image.mode != 'P':
-                self._clustered_image = self._clustered_image.convert('P')
-            self._clustered_image.putpalette(palette)
-
-            qimage = QImage(self._clustered_image.tobytes(), self._clustered_image.size[0], self._clustered_image.size[1], QImage.Format_Indexed8)
+            # Create QImage from the prepared image
+            qimage = QImage(self._clustered_image.tobytes(), self._clustered_image.size[0], 
+                           self._clustered_image.size[1], QImage.Format_Indexed8)
             qimage.setColorCount(num_labels)
             qimage.setColorTable(self._color_table)
 
+            # Create and display pixmap
             pixmap = QPixmap.fromImage(qimage).scaled(2000, 5000, Qt.KeepAspectRatio)
             self.last_pixmap = pixmap
             self.last_grayscale_index = None
@@ -685,13 +772,19 @@ class ImageViewerUi(QMainWindow):
         if self._masks and self._visible_clusters:
             first_mask, _ = next(iter(self._masks.values()))
             height, width = first_mask.shape
-            max_pixels = 500000
-            if height * width > max_pixels:
-                scale_factor = np.sqrt(max_pixels / (height * width))
+
+            # Calculate optimal scale factor
+            if self.clusterview is not None:
+                scale_factor = self.clusterview.calculate_optimal_scale_factor(height, width)
+            else:
+                # Fallback if clusterview is None
+                max_pixels = 500000
+                scale_factor = np.sqrt(max_pixels / (height * width)) if height * width > max_pixels else 1.0
+
+            if scale_factor < 1.0:
                 new_height = int(height * scale_factor)
                 new_width = int(width * scale_factor)
             else:
-                scale_factor = 1.0
                 new_height, new_width = height, width
 
             for cluster_id in self._visible_clusters:
@@ -708,25 +801,37 @@ class ImageViewerUi(QMainWindow):
                 if mask is None:
                     continue
 
-                if scale_factor != 1.0:
-                    mask_small = cv2.resize(mask.astype(np.uint8), (new_width, new_height), interpolation=cv2.INTER_NEAREST).astype(bool)
+                # Create mask overlay
+                if self.clusterview is not None:
+                    overlay = self.clusterview.create_mask_overlay(
+                        mask, color, self._mask_opacity, 
+                        target_width=new_width, target_height=new_height
+                    )
                 else:
-                    mask_small = mask
+                    # Fallback if clusterview is None
+                    if new_width != width or new_height != height:
+                        mask_small = cv2.resize(mask.astype(np.uint8), (new_width, new_height), 
+                                              interpolation=cv2.INTER_NEAREST).astype(bool)
+                    else:
+                        mask_small = mask
 
-                overlay = QImage(new_width, new_height, QImage.Format_ARGB32)
-                overlay.fill(Qt.transparent)
+                    overlay = QImage(new_width, new_height, QImage.Format_ARGB32)
+                    overlay.fill(Qt.transparent)
 
-                mask_data = np.zeros((new_height, new_width, 4), dtype=np.uint8)
-                mask_data[mask_small, 0] = color.red()
-                mask_data[mask_small, 1] = color.green()
-                mask_data[mask_small, 2] = color.blue()
-                mask_data[mask_small, 3] = self._mask_opacity
+                    mask_data = np.zeros((new_height, new_width, 4), dtype=np.uint8)
+                    mask_data[mask_small, 0] = color.red()
+                    mask_data[mask_small, 1] = color.green()
+                    mask_data[mask_small, 2] = color.blue()
+                    mask_data[mask_small, 3] = self._mask_opacity
 
-                overlay_data = mask_data.tobytes()
-                overlay = QImage(overlay_data, new_width, new_height, QImage.Format_ARGB32)
+                    overlay_data = mask_data.tobytes()
+                    overlay = QImage(overlay_data, new_width, new_height, QImage.Format_ARGB32)
 
+                # Create and cache pixmap
                 overlay_pixmap = QPixmap.fromImage(overlay).scaled(2000, 5000, Qt.KeepAspectRatio)
                 self.mask_overlays[cache_key] = overlay_pixmap
+
+                # Remove existing overlay if present
                 if cluster_id in self.overlay_items:
                     try:
                         if self.overlay_items[cluster_id].scene() == self.displayImage:
@@ -735,22 +840,14 @@ class ImageViewerUi(QMainWindow):
                             print(f"Skipping removal of existing overlay for cluster {cluster_id}: item is not in the current scene")
                     except Exception as e:
                         print(f"Error removing existing overlay for cluster {cluster_id}: {e}")
+
+                # Add new overlay
                 item = self.displayImage.addPixmap(overlay_pixmap)
                 self.overlay_items[cluster_id] = item
                 print(f"Computed and cached overlay for cluster {cluster_id}")
 
         self.adjustSize()
 
-    def on_image_selected(self, text):
-        if text == "Select Image":
-            self.displayImage.clear()
-            self.overlay_items.clear()
-            self.last_pixmap = None
-            return
-
-        index = self.imageSelector.currentData()
-        if index is not None:
-            self.chooseGrayscaleImage(index)
 
 # Client code
 def main():
