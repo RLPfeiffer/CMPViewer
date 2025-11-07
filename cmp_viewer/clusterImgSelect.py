@@ -8,6 +8,7 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSignal
 import numpy as np
 from numpy.typing import NDArray
+from PyQt5.QtGui import QColor
 from cmp_viewer.Cluster import Cluster
 from cmp_viewer.models import ImageSet
 
@@ -30,11 +31,14 @@ class ImageSelectDlg(QtWidgets.QDialog):
         clusterImages (list): List of selected image data.
         clusterList (QListWidget): Widget displaying the list of images with checkboxes.
         selected_mask (NDArray[bool]): Boolean mask indicating which images are selected.
+        roiList (QListWidget): Optional list of available cluster masks (ROI) to apply.
+        selected_roi_cluster_id (int|None): The chosen ROI cluster id or None for full image.
+        selected_roi_mask (NDArray[bool]|None): The chosen ROI mask or None for full image.
     """
     clusterImgName = []
     clusterImages = []
 
-    def __init__(self, fileNameList, image_set: ImageSet, checked=False, **kwargs):
+    def __init__(self, fileNameList, image_set: ImageSet, checked=False, *, masks: dict | None = None, names: dict | None = None, **kwargs):
         """
         Initialize the image selection dialog.
 
@@ -42,14 +46,17 @@ class ImageSelectDlg(QtWidgets.QDialog):
             fileNameList (list): List of image filenames to display.
             image_set (ImageSet): Set of images that can be selected for clustering.
             checked (bool, optional): Whether all images should be checked by default. Defaults to False.
+            masks (Optional[Dict[int, Tuple[NDArray[bool], QColor]]]): Available cluster masks and colors.
+            names (Optional[Dict[int, str]]): Display names for cluster ids.
             **kwargs: Additional arguments to pass to the QDialog constructor.
         """
         super().__init__(**kwargs)
         self.cluster = None
         layout = QVBoxLayout()
         self.clusterList = QListWidget()
-        # self.list.addItems(fileNameList)
         self._image_set = image_set
+        self._available_masks = masks or {}
+        self._names = names or {}
 
         # Create list items with checkboxes for each image
         for items in fileNameList:
@@ -61,28 +68,79 @@ class ImageSelectDlg(QtWidgets.QDialog):
 
         self.setWindowFlags(Qt.Dialog | Qt.Tool)
 
-        # Create Select button
+        # Add widgets to layout
+        layout.addWidget(QtWidgets.QLabel("Select Images to include in clustering"))
+        layout.addWidget(self.clusterList)
+
+        # Optional ROI section
+        self.roiList = None
+        self.selected_roi_cluster_id = None
+        self.selected_roi_mask = None
+        if len(self._available_masks) > 0:
+            layout.addWidget(QtWidgets.QLabel("Available Cluster Masks (ROI)"))
+            self.roiList = QListWidget()
+            self.roiList.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+            # Add custom stylesheet for better visual feedback
+            self.roiList.setStyleSheet(
+                """
+                            QListWidget::item:selected {
+                                background-color: #4A90E2;
+                                color: white;
+                                border: 2px solid #2E5C8A;
+                                font-weight: bold;
+                            }
+                            QListWidget::item:hover {
+                                background-color: #16161616;
+                            }
+                            """
+                        )
+
+            # Add "No ROI" option
+            no_roi_item = QtWidgets.QListWidgetItem("No ROI (full image)")
+            no_roi_item.setData(Qt.UserRole, None)
+            self.roiList.addItem(no_roi_item)
+            self.roiList.setCurrentItem(no_roi_item)
+
+            # Add one item per cluster mask
+            for cid, (mask, color) in self._available_masks.items():
+                name = self._names.get(int(cid), f"Cluster {int(cid)}")
+                item = QtWidgets.QListWidgetItem(name)
+                item.setData(Qt.UserRole, int(cid))
+                try:
+                    # Use background to show color
+                    if isinstance(color, QColor):
+                        item.setBackground(color)
+                        # Ensure text readable
+                        brightness = 0.299 * color.red() + 0.587 * color.green() + 0.114 * color.blue()
+                        item.setForeground(Qt.black if brightness > 128 else Qt.white)
+                except Exception:
+                    pass
+                self.roiList.addItem(item)
+
+            # Helpful hint
+            layout.addWidget(QtWidgets.QLabel("Tip: If you choose a mask here, the next clustering will update only that region; other regions are preserved."))
+            layout.addWidget(self.roiList)
+
+        # Selection controls
+        select_all_button = QPushButton("Select All Images")
+        select_all_button.clicked.connect(self.select_all)
+        layout.addWidget(select_all_button)
+
+        select_none_button = QPushButton("Select No Images")
+        select_none_button.clicked.connect(self.select_none)
+        layout.addWidget(select_none_button)
+
+        invert_button = QPushButton("Invert Image Selection")
+        invert_button.clicked.connect(self.invert_selection)
+        layout.addWidget(invert_button)
+
+        # Select button
         widget = QWidget()
         self.button1 = QPushButton(widget)
         self.button1.setText("Select")
         self.button1.clicked.connect(lambda: self.return_results(self.clusterList.currentRow()))
-
-        # Add selection buttons
-        select_all_button = QPushButton("Select All")
-        select_all_button.clicked.connect(self.select_all)
-        layout.addWidget(select_all_button)
-
-        select_none_button = QPushButton("Select None")
-        select_none_button.clicked.connect(self.select_none)
-        layout.addWidget(select_none_button)
-
-        invert_button = QPushButton("Invert Selection")
-        invert_button.clicked.connect(self.invert_selection)
-        layout.addWidget(invert_button)
-
-        # Add widgets to layout
-        layout.addWidget(self.clusterList)
         layout.addWidget(self.button1)
+
         self.setLayout(layout)
 
         # Initialize selection mask
@@ -117,7 +175,8 @@ class ImageSelectDlg(QtWidgets.QDialog):
 
         This method is called when the user clicks the Select button. It updates
         the selected_mask attribute based on which items are checked in the list,
-        then closes the dialog with an "accept" result.
+        and records the selected ROI mask (if any), then closes the dialog with
+        an "accept" result.
 
         Args:
             index (int): The index of the currently selected item (not used).
@@ -126,6 +185,25 @@ class ImageSelectDlg(QtWidgets.QDialog):
         for i in range(self.clusterList.count()):
             item = self.clusterList.item(i)
             self.selected_mask[i] = item.checkState() == Qt.Checked
+
+        # Record selected ROI, if ROI list is present
+        if self.roiList is not None and self.roiList.currentItem() is not None:
+            sel_item = self.roiList.currentItem()
+            cid = sel_item.data(Qt.UserRole)
+            if cid is None:
+                self.selected_roi_cluster_id = None
+                self.selected_roi_mask = None
+            else:
+                self.selected_roi_cluster_id = int(cid)
+                mask_color = self._available_masks.get(self.selected_roi_cluster_id)
+                if mask_color is not None:
+                    self.selected_roi_mask = mask_color[0]
+                else:
+                    self.selected_roi_mask = None
+        else:
+            self.selected_roi_cluster_id = None
+            self.selected_roi_mask = None
+
         self.accept()
 
     def clusterOptions(self, index):

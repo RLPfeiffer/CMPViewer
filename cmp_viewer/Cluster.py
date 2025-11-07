@@ -2,6 +2,7 @@ import typing
 from typing import Callable, Tuple, List, Any, Dict
 import collections
 import os
+import threading
 import cv2
 
 import numpy as np
@@ -9,8 +10,8 @@ from numpy.typing import NDArray
 from PyQt5.QtGui import QPixmap, QImage, qRgb, QColor
 from sklearn.cluster import KMeans
 from PIL import Image
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QListWidget, QPushButton, QInputDialog, QGraphicsPixmapItem
+from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QListWidget, QPushButton, QInputDialog, QGraphicsPixmapItem, QProgressDialog, QMessageBox
 import cmp_viewer.models
 import cmp_viewer.utils
 
@@ -62,6 +63,68 @@ class ISODATASettings(typing.NamedTuple):
     max_merge_pairs: int
     random_state: int
 
+class ClusteringWorker(QObject):
+    progress = pyqtSignal(int, str)
+    finished = pyqtSignal(object, object)  # labels (ndarray), settings
+    error = pyqtSignal(str)
+    canceled = pyqtSignal()
+
+    def __init__(self, *, algorithm: str, data: np.ndarray, settings: typing.Any, image_shape: typing.Tuple[int, int], isodata_fn: typing.Callable = None):
+        super().__init__()
+        self.algorithm = algorithm
+        self.data = data
+        self.settings = settings
+        self.image_shape = image_shape
+        self.isodata_fn = isodata_fn
+        self._cancel_event = threading.Event()
+
+    def request_cancel(self):
+        self._cancel_event.set()
+
+    def run(self):
+        try:
+            if self.algorithm == 'kmeans':
+                self.progress.emit(0, 'Initializing k-means...')
+                # sklearn expects samples as rows; upstream provides pixels as (n_selected_images, n_pixels)
+                pixels = self.data
+                km = KMeans(n_clusters=self.settings.n_clusters,
+                            init=self.settings.init,
+                            n_init=self.settings.n_init,
+                            max_iter=self.settings.max_iter,
+                            tol=self.settings.tol,
+                            random_state=self.settings.random_state)
+                # Indeterminate: cannot report inner progress
+                labels = None
+                km.fit(pixels.T)
+                if self._cancel_event.is_set():
+                    self.canceled.emit()
+                    return
+                labels = km.labels_.reshape(self.image_shape)
+                self.progress.emit(100, 'k-means complete')
+                self.finished.emit(labels, self.settings)
+            elif self.algorithm == 'isodata':
+                if self.isodata_fn is None:
+                    raise RuntimeError('ISODATA function not provided')
+                def cb(pct: int, msg: str):
+                    self.progress.emit(pct, msg)
+                labels_flat = self.isodata_fn(self.data, self.settings, progress_cb=cb, cancel_event=self._cancel_event)
+                if labels_flat is None:
+                    # Treat None as canceled
+                    self.canceled.emit()
+                    return
+                labels = labels_flat.reshape(self.image_shape)
+                self.progress.emit(100, 'ISODATA complete')
+                self.finished.emit(labels, self.settings)
+            else:
+                raise RuntimeError(f'Unknown algorithm: {self.algorithm}')
+        except Exception as e:
+            # If cancellation expressed via exception, map to canceled
+            msg = str(e)
+            if 'CANCELED' in msg.upper() or isinstance(e, KeyboardInterrupt):
+                self.canceled.emit()
+            else:
+                self.error.emit(msg)
+
 class Cluster(QWidget):
     """
     A widget for performing clustering on multidimensional images.
@@ -81,7 +144,8 @@ class Cluster(QWidget):
     """
 
     def __init__(self, clusterImgName, clusterImages: cmp_viewer.models.ImageSet, selected_mask: NDArray[bool],
-                 on_cluster_callback: Callable[[NDArray[int], Any], Tuple[NDArray[int], Any]]):
+                 on_cluster_callback: Callable[[NDArray[int], Any], Tuple[NDArray[int], Any]],
+                 *, base_labels: NDArray[int] | None = None, base_masks: dict | None = None, spatial_roi: NDArray[bool] | None = None):
         """
         Initialize the Cluster widget.
 
@@ -98,10 +162,21 @@ class Cluster(QWidget):
         self.clusterImgName = clusterImgName
         self._image_set = clusterImages
         self._mask = selected_mask
-        self.labels = None  # Store current cluster labels
-        self.masks = None  # Store masks and colors for each cluster: Dict[int, Tuple[NDArray[bool], QColor]]
+        # Prior state and ROI
+        self.labels = base_labels if base_labels is not None else None  # Current cluster labels
+        self.masks = base_masks if base_masks is not None else None  # Dict[int, Tuple[NDArray[bool], QColor]]
+        self._spatial_roi = spatial_roi if spatial_roi is not None else None  # Optional ROI mask
         self.undo_stack = []  # Stack to store previous states (labels, masks)
         self.undo_stack_max_size = 10  # Limit undo stack size
+        # Track whether the last run used an ROI (for viewer naming/clearing logic)
+        self._last_run_was_roi = False
+        # If prior state exists, seed undo stack
+        if self.labels is not None and self.masks is not None:
+            try:
+                self.undo_stack.append((np.copy(self.labels), {k: (mask.copy(), color) for k, (mask, color) in self.masks.items()}))
+            except Exception:
+                # Fallback: do not seed if shapes/types unexpected
+                pass
 
         # Set up the UI
         layout = QVBoxLayout()
@@ -131,8 +206,12 @@ class Cluster(QWidget):
             None
         """
         selected_algorithm = self.clusterList.currentItem().text()
-        # Hide the window before running the algorithm
-        self.hide()
+        # Optionally hide the launcher window while clustering runs
+        # (we keep it alive to own the progress dialog)
+        try:
+            self.hide()
+        except Exception:
+            pass
 
         if selected_algorithm == "k-means":
             self.runKMeansClustering()
@@ -141,16 +220,12 @@ class Cluster(QWidget):
         else:
             print(f"Unknown clustering algorithm: {selected_algorithm}")
 
-        # Close the window after the algorithm completes
-        self.close()
-
     def runKMeansClustering(self):
         """
         Run K-means clustering on the selected images.
 
-        This method prompts the user for the number of clusters (k), performs K-means
-        clustering on the selected images, and updates the labels and masks. It also
-        saves the clustering state to the undo stack and calls the callback function.
+        If a spatial ROI and prior labels are available, only re-cluster pixels within
+        the ROI and preserve labels outside the ROI. Otherwise, run full-image k-means.
 
         Returns:
             None
@@ -160,45 +235,50 @@ class Cluster(QWidget):
         if not ok:
             return
 
-        # Pixels from selected masked regions
-        pixels = self._image_set.images[self._mask, :, :].reshape(self._mask.sum(), -1)
+        # Path 1: ROI-based re-clustering if prior labels and ROI are available
+        if self._spatial_roi is not None and self.labels is not None:
+            try:
+                new_labels, settings = self.cluster_on_mask(self._spatial_roi, n_clusters=k)
+                if new_labels is None:
+                    QMessageBox.warning(self, "ROI Empty", "No pixels in the selected ROI. Please choose a different mask or run full-image clustering.")
+                    return
+                # Mark this run as ROI-based for downstream naming logic
+                self._last_run_was_roi = True
+                # Callback will update masks and main view
+                self.on_cluster_callback(new_labels, settings)
+                return
+            except Exception as e:
+                QMessageBox.warning(self, "ROI Clustering Error", f"Falling back to full-image k-means due to error: {e}")
+                # fall-through to full-image path
 
+        # Path 2: Full-image k-means
+        # Mark as non-ROI run
+        self._last_run_was_roi = False
+        pixels = self._image_set.images[self._mask, :, :].reshape(self._mask.sum(), -1)
         if pixels.size == 0:
             return
 
         # Create settings with default parameters and user-specified k
         settings = KMeansSettings(n_clusters=k, init="random", n_init=5, max_iter=100, tol=1e-3, random_state=42)
 
-        # Perform k-means clustering
-        kmeans = KMeans(n_clusters=settings.n_clusters,
-                        init=settings.init,
-                        n_init=settings.n_init,
-                        max_iter=settings.max_iter,
-                        tol=settings.tol,
-                        random_state=settings.random_state)
-        kmeans.fit(pixels.T)
-
-        # Get the label array and reshape it to match the original image shape
-        self.labels = kmeans.labels_.reshape(self._image_set.image_shape)
-        self.masks = self.generate_masks(self.labels, settings.n_clusters)
-
-        # Save initial state to undo stack
-        self.undo_stack.append((np.copy(self.labels), {k: (mask.copy(), color) for k, (mask, color) in self.masks.items()}))
-        if len(self.undo_stack) > self.undo_stack_max_size:
-            self.undo_stack.pop(0)
-
-        # Call the callback with labels and settings
-        self.on_cluster_callback(self.labels, settings)
+        # Start background worker with progress dialog (indeterminate for k-means)
+        self._start_clustering_worker(
+            algorithm='kmeans',
+            data=pixels,
+            settings=settings,
+            image_shape=self._image_set.image_shape,
+            dialog_title="Running k-means...",
+            determinate=False,
+            maximum=settings.max_iter
+        )
 
     def runISODATAClustering(self):
         """
         Run ISODATA clustering on the selected images.
 
-        ISODATA (Iterative Self-Organizing Data Analysis Technique) is an extension
-        of k-means that allows for merging and splitting of clusters based on various criteria.
-        This method prompts the user for the necessary parameters, performs ISODATA
-        clustering on the selected images, and updates the labels and masks. It also
-        saves the clustering state to the undo stack and calls the callback function.
+        If an ROI and prior labels are present, we currently run full-image ISODATA
+        but inform the user that ROI-limited ISODATA is coming; KMeans already supports
+        ROI-limited updates via the existing path.
 
         Returns:
             None
@@ -207,6 +287,12 @@ class Cluster(QWidget):
         k, ok = QInputDialog.getInt(self, "ISODATA Clustering", "Initial number of clusters:", 8, 1, 256)
         if not ok:
             return
+        # Inform about ROI behavior for ISODATA (temporary)
+        try:
+            if self._spatial_roi is not None and self.labels is not None:
+                QMessageBox.information(self, "ROI note", "ROI-limited ISODATA will be supported soon. Running full-image ISODATA for now.")
+        except Exception:
+            pass
 
         max_iter, ok = QInputDialog.getInt(self, "ISODATA Clustering", "Maximum iterations:", 20, 1, 1000)
         if not ok:
@@ -250,26 +336,119 @@ class Cluster(QWidget):
             random_state=42
         )
 
-        # Use the ISODATA algorithm
-        # _isodata_algorithm expects data with shape (n_features, n_samples)
-        # In our case, n_features is n_selected_images and n_samples is height*width
-        cluster_labels = self._isodata_algorithm(pixel_values, settings)
+        # ISODATA currently runs full-image; mark as non-ROI run
+        self._last_run_was_roi = False
 
-        # Reshape the cluster labels to match the image shape
-        self.labels = cluster_labels.reshape(height, width)
-        self.masks = self.generate_masks(self.labels, len(np.unique(self.labels)))
+        # Start background worker with progress dialog (determinate for ISODATA)
+        self._start_clustering_worker(
+            algorithm='isodata',
+            data=pixel_values,
+            settings=settings,
+            image_shape=(height, width),
+            dialog_title=f"Running ISODATA ({max_iter} iterations max)...",
+            determinate=True,
+            maximum=100
+        )
 
-        # Save initial state to undo stack
-        self.undo_stack.append((np.copy(self.labels), {k: (mask.copy(), color) for k, (mask, color) in self.masks.items()}))
-        if len(self.undo_stack) > self.undo_stack_max_size:
-            self.undo_stack.pop(0)
+    def _start_clustering_worker(self, *, algorithm: str, data: np.ndarray, settings: typing.Any, image_shape: typing.Tuple[int, int], dialog_title: str, determinate: bool, maximum: int):
+        # Create and show progress dialog
+        self._progress_dialog = QProgressDialog("Preparing...", "Cancel", 0, maximum if determinate else 0, self)
+        self._progress_dialog.setWindowTitle(dialog_title)
+        self._progress_dialog.setAutoClose(False)
+        self._progress_dialog.setAutoReset(False)
+        self._progress_dialog.setMinimumDuration(0)
+        if not determinate:
+            # Indeterminate/busy state
+            self._progress_dialog.setRange(0, 0)
+        else:
+            self._progress_dialog.setValue(0)
 
-        # Call the callback with labels and settings
-        self.on_cluster_callback(self.labels, settings)
+        # Spin up thread and worker
+        self._worker_thread = QThread(self)
+        self._worker = ClusteringWorker(algorithm=algorithm, data=data, settings=settings, image_shape=image_shape, isodata_fn=self._isodata_algorithm)
+        self._worker.moveToThread(self._worker_thread)
 
-    def _isodata_algorithm(self, data: NDArray, settings: ISODATASettings) -> NDArray[int]:
+        # Wire signals
+        self._worker_thread.started.connect(self._worker.run)
+
+        def on_progress(pct: int, msg: str):
+            try:
+                if determinate and self._progress_dialog.maximum() != 0:
+                    self._progress_dialog.setValue(max(0, min(100, pct)))
+                self._progress_dialog.setLabelText(msg)
+            except Exception:
+                pass
+
+        def cleanup_thread():
+            try:
+                self._worker_thread.quit()
+                self._worker_thread.wait()
+            except Exception:
+                pass
+            try:
+                self._worker.deleteLater()
+                self._worker_thread.deleteLater()
+            except Exception:
+                pass
+            self._worker = None
+            self._worker_thread = None
+
+        def on_finished(labels, returned_settings):
+            try:
+                # Update state and invoke callback
+                self.labels = labels
+                n_clusters = len(np.unique(self.labels)) if isinstance(returned_settings, ISODATASettings) else returned_settings.n_clusters
+                self.masks = self.generate_masks(self.labels, n_clusters)
+                # Save to undo stack
+                self.undo_stack.append((np.copy(self.labels), {k: (mask.copy(), color) for k, (mask, color) in self.masks.items()}))
+                if len(self.undo_stack) > self.undo_stack_max_size:
+                    self.undo_stack.pop(0)
+                self.on_cluster_callback(self.labels, returned_settings)
+            finally:
+                try:
+                    self._progress_dialog.reset()
+                    self._progress_dialog.hide()
+                except Exception:
+                    pass
+                cleanup_thread()
+
+        def on_canceled():
+            try:
+                QMessageBox.information(self, "Clustering Canceled", "The clustering operation was canceled.")
+            finally:
+                try:
+                    self._progress_dialog.reset()
+                    self._progress_dialog.hide()
+                except Exception:
+                    pass
+                cleanup_thread()
+
+        def on_error(message: str):
+            try:
+                QMessageBox.critical(self, "Clustering Error", f"An error occurred during clustering:\n{message}")
+            finally:
+                try:
+                    self._progress_dialog.reset()
+                    self._progress_dialog.hide()
+                except Exception:
+                    pass
+                cleanup_thread()
+
+        self._worker.progress.connect(on_progress)
+        self._worker.finished.connect(on_finished)
+        self._worker.canceled.connect(on_canceled)
+        self._worker.error.connect(on_error)
+
+        # Cancel button
+        self._progress_dialog.canceled.connect(self._worker.request_cancel)
+
+        # Start
+        self._worker_thread.start()
+        self._progress_dialog.show()
+
+    def _isodata_algorithm(self, data: NDArray, settings: ISODATASettings, progress_cb: typing.Callable[[int, str], None] = None, cancel_event: threading.Event = None) -> NDArray[int]:
         """
-        Implement the ISODATA clustering algorithm.
+        Implement the ISODATA clustering algorithm with optional progress and cancellation support.
 
         ISODATA (Iterative Self-Organizing Data Analysis Technique) is an extension
         of k-means that allows for merging and splitting of clusters based on various criteria.
@@ -297,6 +476,12 @@ class Cluster(QWidget):
         labels = np.zeros(n_samples, dtype=int)
 
         for iteration in range(settings.max_iter):
+            # Progress and cancel checks
+            if cancel_event is not None and cancel_event.is_set():
+                return None
+            if progress_cb is not None:
+                pct = int((iteration / max(1, settings.max_iter)) * 100)
+                progress_cb(pct, f"ISODATA: Iteration {iteration+1}/{settings.max_iter}")
             # Store current number of clusters before any modifications
             old_n_clusters = settings.n_clusters
 
@@ -646,6 +831,79 @@ class Cluster(QWidget):
 
         return new_labels, settings
 
+    def isodata_on_mask(self, mask: NDArray[bool], settings: ISODATASettings) -> Tuple[NDArray[int], ISODATASettings]:
+        """
+        Run ISODATA clustering on pixels within the given mask using averaged image data.
+
+        This method performs ISODATA clustering on a specific region of the image defined
+        by the mask. It averages pixel values across selected images within the masked region,
+        runs ISODATA on these averaged values, and updates the labels and masks accordingly.
+
+        Args:
+            mask (NDArray[bool]): Boolean mask indicating which pixels to include in clustering.
+            settings (ISODATASettings): Settings for the ISODATA algorithm.
+
+        Returns:
+            Tuple[NDArray[int], ISODATASettings]: Tuple containing the new labels array and
+                                                   the settings used for clustering. Returns
+                                                   (None, None) if clustering cannot be performed.
+
+        Raises:
+            ValueError: If the mask shape does not match the image dimensions.
+        """
+        # Check if there are images to cluster or if the mask is empty
+        if self._image_set.images.size == 0 or not np.any(mask):
+            return None, None
+
+        # Get the selected images
+        selected_images = self._image_set.images[self._mask, :, :]
+        if selected_images.size == 0:
+            return None, None
+
+        # Ensure mask matches the image dimensions (height, width)
+        if mask.shape != selected_images.shape[1:]:
+            raise ValueError(f"Mask shape {mask.shape} does not match image dimensions {selected_images.shape[1:]}")
+
+        # Average pixel values across selected images within the mask
+        masked_images = [img[mask] for img in selected_images]
+        if not masked_images or all(len(m) == 0 for m in masked_images):
+            return None, None
+        avg_masked_pixels = np.mean(np.vstack(masked_images), axis=0)
+
+        # Reshape for ISODATA algorithm: (n_features, n_samples) format
+        # ISODATA expects features as rows, samples as columns
+        avg_masked_pixels = avg_masked_pixels.reshape(1, -1)
+
+        # Debug: Verify sizes
+        print(f"Number of masked pixels: {avg_masked_pixels.shape[1]}")
+        print(f"Number of True values in mask: {np.sum(mask)}")
+
+        # Run ISODATA on averaged masked pixels using the algorithm method
+        sub_labels = self._isodata_algorithm(avg_masked_pixels, settings)
+
+        if sub_labels is None:
+            return None, None
+
+        # Debug: Verify sub_labels size
+        print(f"Sub_labels size: {sub_labels.shape[0]}")
+
+        # Create new labels array, preserving original labels outside the mask
+        new_labels = np.copy(self.labels)
+        max_label = np.max(self.labels) if self.labels is not None else -1
+        new_labels[mask] = sub_labels + max_label + 1  # Offset new labels to avoid overlap
+
+        # Update masks with the new labels
+        self.labels = new_labels
+        self.masks = self.generate_masks(self.labels, len(np.unique(new_labels)))
+
+        # Save state to undo stack
+        self.undo_stack.append(
+            (np.copy(self.labels), {k: (mask_data.copy(), color) for k, (mask_data, color) in self.masks.items()}))
+        if len(self.undo_stack) > self.undo_stack_max_size:
+            self.undo_stack.pop(0)
+
+        return new_labels, settings
+
     def merge_clusters(self, cluster_ids: List[int]) -> Tuple[NDArray[int], KMeansSettings]:
         """
         Merge multiple clusters into a single cluster.
@@ -786,11 +1044,12 @@ class Cluster(QWidget):
         overlay.fill(Qt.transparent)
 
         # Apply color to mask
+        # Note: QImage.Format_ARGB32 expects BGRA byte order in memory on little-endian systems.
         mask_data = np.zeros((height, width, 4), dtype=np.uint8)
-        mask_data[mask_small, 0] = color.red()
-        mask_data[mask_small, 1] = color.green()
-        mask_data[mask_small, 2] = color.blue()
-        mask_data[mask_small, 3] = opacity
+        mask_data[mask_small, 0] = color.blue()   # B
+        mask_data[mask_small, 1] = color.green()  # G
+        mask_data[mask_small, 2] = color.red()    # R
+        mask_data[mask_small, 3] = opacity        # A
 
         # Convert to QImage
         overlay_data = mask_data.tobytes()
