@@ -14,6 +14,20 @@ from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QListWidget, QPushButton, QInputDialog, QGraphicsPixmapItem, QProgressDialog, QMessageBox
 import cmp_viewer.models
 import cmp_viewer.utils
+import logging
+
+# Configure logging to write to BOTH file and console
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('cmp_viewer/Logs/cluster_debug.log'),  # Log to file
+        logging.StreamHandler()  # Also print to console
+    ]
+)
+logger = logging.getLogger(__name__)
+logger.info("=== Cluster.py module loaded ===")
+
 
 """
 This module provides clustering functionality for multidimensional images.
@@ -62,6 +76,7 @@ class ISODATASettings(typing.NamedTuple):
     min_cluster_distance: float
     max_merge_pairs: int
     random_state: int
+
 
 class ClusteringWorker(QObject):
     progress = pyqtSignal(int, str)
@@ -145,7 +160,8 @@ class Cluster(QWidget):
 
     def __init__(self, clusterImgName, clusterImages: cmp_viewer.models.ImageSet, selected_mask: NDArray[bool],
                  on_cluster_callback: Callable[[NDArray[int], Any], Tuple[NDArray[int], Any]],
-                 *, base_labels: NDArray[int] | None = None, base_masks: dict | None = None, spatial_roi: NDArray[bool] | None = None):
+                 *, base_labels: NDArray[int] | None = None, base_masks: dict | None = None,
+                 spatial_roi: NDArray[bool] | None = None):
         """
         Initialize the Cluster widget.
 
@@ -154,10 +170,19 @@ class Cluster(QWidget):
             clusterImages (ImageSet): Set of images to cluster.
             selected_mask (NDArray[bool]): Boolean mask indicating which images to include.
             on_cluster_callback (Callable): Function to call after clustering is complete.
-                                           Takes labels and settings as input and returns
-                                           updated labels and settings.
+            base_labels: Existing cluster labels (for ROI-based clustering).
+            base_masks: Existing cluster masks (for ROI-based clustering).
+            spatial_roi: Spatial ROI mask for constrained clustering.
         """
         super().__init__()
+        logger.info(f"=== Cluster.__init__ called ===")
+        logger.info(f"spatial_roi parameter: {spatial_roi is not None}")
+        if spatial_roi is not None:
+            logger.info(
+                f"spatial_roi shape: {spatial_roi.shape}, dtype: {spatial_roi.dtype}, True pixels: {np.sum(spatial_roi)}")
+        logger.info(f"base_labels: {base_labels is not None}")
+        logger.info(f"base_masks: {base_masks is not None}")
+
         self.on_cluster_callback = on_cluster_callback
         self.clusterImgName = clusterImgName
         self._image_set = clusterImages
@@ -166,6 +191,11 @@ class Cluster(QWidget):
         self.labels = base_labels if base_labels is not None else None  # Current cluster labels
         self.masks = base_masks if base_masks is not None else None  # Dict[int, Tuple[NDArray[bool], QColor]]
         self._spatial_roi = spatial_roi if spatial_roi is not None else None  # Optional ROI mask
+
+        logger.info(f"After assignment - self._spatial_roi: {self._spatial_roi is not None}")
+        if self._spatial_roi is not None:
+            logger.info(f"self._spatial_roi shape: {self._spatial_roi.shape}, True pixels: {np.sum(self._spatial_roi)}")
+
         self.undo_stack = []  # Stack to store previous states (labels, masks)
         self.undo_stack_max_size = 10  # Limit undo stack size
         # Track whether the last run used an ROI (for viewer naming/clearing logic)
@@ -173,10 +203,11 @@ class Cluster(QWidget):
         # If prior state exists, seed undo stack
         if self.labels is not None and self.masks is not None:
             try:
-                self.undo_stack.append((np.copy(self.labels), {k: (mask.copy(), color) for k, (mask, color) in self.masks.items()}))
-            except Exception:
-                # Fallback: do not seed if shapes/types unexpected
-                pass
+                self.undo_stack.append(
+                    (np.copy(self.labels), {k: (mask.copy(), color) for k, (mask, color) in self.masks.items()}))
+                logger.info("Seeded undo stack with prior state")
+            except Exception as e:
+                logger.warning(f"Failed to seed undo stack: {e}")
 
         # Set up the UI
         layout = QVBoxLayout()
@@ -193,6 +224,8 @@ class Cluster(QWidget):
         layout.addWidget(self.clusterList)
         layout.addWidget(self.button1)
         self.setLayout(layout)
+
+        logger.info("=== Cluster.__init__ completed ===")
 
     def runClustering(self):
         """
@@ -218,7 +251,7 @@ class Cluster(QWidget):
         elif selected_algorithm == "ISODATA":
             self.runISODATAClustering()
         else:
-            print(f"Unknown clustering algorithm: {selected_algorithm}")
+            logger.info(f"Unknown clustering algorithm: {selected_algorithm}")
 
     def runKMeansClustering(self):
         """
@@ -283,6 +316,7 @@ class Cluster(QWidget):
         Returns:
             None
         """
+        logger.info("=== Starting ISODATA clustering ===")
         # Get user input for parameters
         k, ok = QInputDialog.getInt(self, "ISODATA Clustering", "Initial number of clusters:", 8, 1, 256)
         if not ok:
@@ -314,15 +348,55 @@ class Cluster(QWidget):
         if not ok:
             return
 
+        logger.info(f"ISODATA parameters: max_iter={max_iter}, min_samples={min_samples}, max_std_dev={max_std_dev}, min_cluster_distance={min_cluster_distance}, max_merge_pairs={max_merge_pairs}")
+
+        # Path 1: ROI-based re-clustering if prior labels and ROI are available
+        if self._spatial_roi is not None and self.labels is not None:
+            logger.info("ROI and prior labels detected - attempting ROI-based ISODATA clustering")
+            try:
+                settings = ISODATASettings(
+                    n_clusters=k,
+                    max_iter=max_iter,
+                    min_samples=min_samples,
+                    max_std_dev=max_std_dev,
+                    min_cluster_distance=min_cluster_distance,
+                    max_merge_pairs=max_merge_pairs,
+                    random_state=42
+                )
+                logger.info(
+                    f"ROI mask has {np.sum(self._spatial_roi)} True pixels out of {self._spatial_roi.size} total pixels")
+
+                new_labels, returned_settings = self.isodata_on_mask(self._spatial_roi, settings)
+                if new_labels is None:
+                    logger.warning("ROI clustering returned None - ROI may be empty")
+                    QMessageBox.warning(self, "ROI Empty",
+                                        "No pixels in the selected ROI. Please choose a different mask or run full-image clustering.")
+                    return
+
+                # Mark this run as ROI-based
+                self._last_run_was_roi = True
+                logger.info("ROI-based ISODATA completed successfully")
+                # Callback will update masks and main view
+                self.on_cluster_callback(new_labels, returned_settings)
+                return
+            except Exception as e:
+                logger.error(f"ROI clustering failed with error: {e}", exc_info=True)
+                QMessageBox.warning(self, "ROI Clustering Error",
+                                    f"Falling back to full-image ISODATA due to error: {e}")
+                # fall-through to full-image path
+
+        # Path 2: Full-image ISODATA
+        logger.info("Running full-image ISODATA (no ROI)")
         # Get the image shape for later reshaping
         height, width = self._image_set.image_shape
+        logger.info(f"Image shape: {height}x{width}")
 
         # Get the pixel values for all selected images
-        # This selects the images indicated by self._mask (which is a 1D array)
-        # and reshapes them to a 2D array where each row is a flattened image
         pixel_values = self._image_set.images[self._mask, :, :].reshape(self._mask.sum(), -1)
+        logger.info(f"Processing {self._mask.sum()} images, total pixels: {pixel_values.size}")
 
         if pixel_values.size == 0:
+            logger.warning("No pixel data to cluster")
             return
 
         # Create settings with user-specified parameters
@@ -336,8 +410,9 @@ class Cluster(QWidget):
             random_state=42
         )
 
-        # ISODATA currently runs full-image; mark as non-ROI run
+        # ISODATA full-image; mark as non-ROI run
         self._last_run_was_roi = False
+        logger.info("Starting full-image ISODATA worker thread")
 
         # Start background worker with progress dialog (determinate for ISODATA)
         self._start_clustering_worker(
@@ -447,6 +522,7 @@ class Cluster(QWidget):
         self._progress_dialog.show()
 
     def _isodata_algorithm(self, data: NDArray, settings: ISODATASettings, progress_cb: typing.Callable[[int, str], None] = None, cancel_event: threading.Event = None) -> NDArray[int]:
+
         """
         Implement the ISODATA clustering algorithm with optional progress and cancellation support.
 
@@ -460,24 +536,33 @@ class Cluster(QWidget):
         Returns:
             NDArray[int]: Cluster labels for each sample
         """
+        logger.info(f"=== _isodata_algorithm started ===")
+        logger.info(f"Data shape: {data.shape} (features x samples)")
+        logger.info(f"Initial clusters: {settings.n_clusters}")
+
         np.random.seed(settings.random_state)
         n_samples = data.shape[1]
         n_features = data.shape[0]
 
         # Adjust number of clusters if it exceeds number of samples
         settings = settings._replace(n_clusters=min(settings.n_clusters, n_samples))
+        logger.info(f"Adjusted clusters to {settings.n_clusters} (cannot exceed {n_samples} samples)")
 
         # Initialize centroids randomly
         # Select k random samples as initial centroids
         indices = np.random.choice(n_samples, settings.n_clusters, replace=False)
         centroids = data[:, indices]
+        logger.info(f"Initialized {settings.n_clusters} centroids")
 
         # Initialize labels
         labels = np.zeros(n_samples, dtype=int)
 
         for iteration in range(settings.max_iter):
+            logger.info(f"--- Iteration {iteration + 1}/{settings.max_iter} ---")
+
             # Progress and cancel checks
             if cancel_event is not None and cancel_event.is_set():
+                logger.info("Algorithm canceled by user")
                 return None
             if progress_cb is not None:
                 pct = int((iteration / max(1, settings.max_iter)) * 100)
@@ -486,6 +571,7 @@ class Cluster(QWidget):
             old_n_clusters = settings.n_clusters
 
             # Assign samples to closest centroids (like k-means)
+            logger.debug(f"Assigning samples to {settings.n_clusters} centroids...")
             distances = np.zeros((settings.n_clusters, n_samples))
             for i in range(settings.n_clusters):
                 diff = data - centroids[:, i].reshape(-1, 1)
@@ -493,17 +579,24 @@ class Cluster(QWidget):
 
             # Assign each sample to the closest centroid
             labels = np.argmin(distances, axis=0)
+            unique_labels_assigned = len(np.unique(labels))
+            logger.info(f"Assigned samples to {unique_labels_assigned} unique clusters")
 
             # Make a copy of the current centroids for convergence check
             old_centroids = centroids.copy()
 
             # Update centroids based on new assignments
+            logger.debug("Updating centroids...")
             for i in range(settings.n_clusters):
                 cluster_samples = data[:, labels == i]
                 if cluster_samples.shape[1] > 0:
                     centroids[:, i] = np.mean(cluster_samples, axis=1)
 
             # Check for empty clusters and handle them
+            empty_clusters = [i for i in range(settings.n_clusters) if np.sum(labels == i) == 0]
+            if empty_clusters:
+                logger.info(f"Handling {len(empty_clusters)} empty clusters")
+
             for i in range(settings.n_clusters):
                 if np.sum(labels == i) == 0:
                     # Find the cluster with the most samples
@@ -512,17 +605,18 @@ class Cluster(QWidget):
                     cluster_samples = data[:, labels == largest_cluster]
                     if cluster_samples.shape[1] > 0:
                         diff = cluster_samples - centroids[:, largest_cluster].reshape(-1, 1)
-                        distances = np.sum(diff**2, axis=0)
+                        distances = np.sum(diff ** 2, axis=0)
                         furthest_sample_idx = np.argmax(distances)
                         # Set the empty cluster's centroid to this sample
                         centroids[:, i] = cluster_samples[:, furthest_sample_idx]
                         # Reassign some samples to this new centroid
                         diff = data - centroids[:, i].reshape(-1, 1)
-                        new_distances = np.sum(diff**2, axis=0)
+                        new_distances = np.sum(diff ** 2, axis=0)
                         closest_to_new = np.argsort(new_distances)[:settings.min_samples]
                         labels[closest_to_new] = i
 
             # ISODATA specific steps:
+            logger.debug("Applying ISODATA operations...")
 
             # 1. Discard clusters with too few samples
             for i in range(settings.n_clusters):
@@ -648,18 +742,24 @@ class Cluster(QWidget):
                     # Update the number of clusters
                     settings = settings._replace(n_clusters=settings.n_clusters - len(merged_clusters))
 
+            # At the end of iteration
+            logger.info(f"End of iteration {iteration + 1}: {settings.n_clusters} clusters")
+
             # Check for convergence only if the number of clusters hasn't changed
             if old_n_clusters == settings.n_clusters:
                 if np.allclose(old_centroids[:, :settings.n_clusters], centroids):
+                    logger.info(f"Converged at iteration {iteration + 1}")
                     break
             # If number of clusters changed, continue to next iteration
             else:
+                logger.info(f"Number of clusters changed from {old_n_clusters} to {settings.n_clusters}")
                 continue
 
         # Ensure labels are consecutive integers starting from 0
         unique_labels = np.unique(labels)
         label_map = {old: new for new, old in enumerate(unique_labels)}
         new_labels = np.array([label_map[l] for l in labels])
+        logger.info(f"=== ISODATA completed with {len(unique_labels)} final clusters ===")
 
         return new_labels
 
@@ -799,8 +899,8 @@ class Cluster(QWidget):
         avg_masked_pixels = avg_masked_pixels.reshape(-1, 1)
 
         # Debug: Verify sizes
-        print(f"Number of masked pixels: {avg_masked_pixels.shape[0]}")
-        print(f"Number of True values in mask: {np.sum(mask)}")
+        logger.info(f"Number of masked pixels: {avg_masked_pixels.shape[0]}")
+        logger.info(f"Number of True values in mask: {np.sum(mask)}")
 
         # Run k-means on averaged masked pixels
         settings = KMeansSettings(n_clusters=n_clusters, init="random", n_init=5, max_iter=100, tol=1e-3, random_state=42)
@@ -813,7 +913,7 @@ class Cluster(QWidget):
         sub_labels = kmeans.fit_predict(avg_masked_pixels)
 
         # Debug: Verify sub_labels size
-        print(f"Sub_labels size: {sub_labels.shape[0]}")
+        logger.info(f"Sub_labels size: {sub_labels.shape[0]}")
 
         # Create new labels array, preserving original labels outside the mask
         new_labels = np.copy(self.labels)
@@ -851,50 +951,67 @@ class Cluster(QWidget):
         Raises:
             ValueError: If the mask shape does not match the image dimensions.
         """
+        logger.info("=== isodata_on_mask called ===")
+
         # Check if there are images to cluster or if the mask is empty
         if self._image_set.images.size == 0 or not np.any(mask):
+            logger.warning(
+                f"Cannot cluster: images.size={self._image_set.images.size}, mask has {np.sum(mask)} True values")
             return None, None
 
         # Get the selected images
         selected_images = self._image_set.images[self._mask, :, :]
+        logger.info(f"Selected {selected_images.shape[0]} images with shape {selected_images.shape[1:]} each")
+
         if selected_images.size == 0:
+            logger.warning("No selected images")
             return None, None
 
         # Ensure mask matches the image dimensions (height, width)
         if mask.shape != selected_images.shape[1:]:
-            raise ValueError(f"Mask shape {mask.shape} does not match image dimensions {selected_images.shape[1:]}")
+            error_msg = f"Mask shape {mask.shape} does not match image dimensions {selected_images.shape[1:]}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
         # Average pixel values across selected images within the mask
         masked_images = [img[mask] for img in selected_images]
+        logger.info(f"Extracted masked pixels from {len(masked_images)} images")
+
         if not masked_images or all(len(m) == 0 for m in masked_images):
+            logger.warning("All masked images are empty")
             return None, None
+
         avg_masked_pixels = np.mean(np.vstack(masked_images), axis=0)
 
         # Reshape for ISODATA algorithm: (n_features, n_samples) format
-        # ISODATA expects features as rows, samples as columns
         avg_masked_pixels = avg_masked_pixels.reshape(1, -1)
 
-        # Debug: Verify sizes
-        print(f"Number of masked pixels: {avg_masked_pixels.shape[1]}")
-        print(f"Number of True values in mask: {np.sum(mask)}")
+        logger.info(f"Number of masked pixels: {avg_masked_pixels.shape[1]}")
+        logger.info(f"Number of True values in mask: {np.sum(mask)}")
 
         # Run ISODATA on averaged masked pixels using the algorithm method
+        logger.info(f"Starting ISODATA algorithm with {settings.n_clusters} initial clusters")
         sub_labels = self._isodata_algorithm(avg_masked_pixels, settings)
 
         if sub_labels is None:
+            logger.warning("ISODATA algorithm returned None")
             return None, None
 
-        # Debug: Verify sub_labels size
-        print(f"Sub_labels size: {sub_labels.shape[0]}")
+        logger.info(f"ISODATA completed. Sub_labels size: {sub_labels.shape[0]}")
+        logger.info(f"Unique labels in sub_labels: {np.unique(sub_labels)}")
 
         # Create new labels array, preserving original labels outside the mask
         new_labels = np.copy(self.labels)
         max_label = np.max(self.labels) if self.labels is not None else -1
+        logger.info(f"Max label in existing labels: {max_label}")
+
         new_labels[mask] = sub_labels + max_label + 1  # Offset new labels to avoid overlap
+        logger.info(f"Assigned new labels with offset {max_label + 1}")
 
         # Update masks with the new labels
         self.labels = new_labels
         self.masks = self.generate_masks(self.labels, len(np.unique(new_labels)))
+        logger.info(f"Generated {len(self.masks)} masks")
 
         # Save state to undo stack
         self.undo_stack.append(
@@ -902,7 +1019,9 @@ class Cluster(QWidget):
         if len(self.undo_stack) > self.undo_stack_max_size:
             self.undo_stack.pop(0)
 
+        logger.info("=== isodata_on_mask completed successfully ===")
         return new_labels, settings
+
 
     def merge_clusters(self, cluster_ids: List[int]) -> Tuple[NDArray[int], KMeansSettings]:
         """

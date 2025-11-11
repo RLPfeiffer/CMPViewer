@@ -528,6 +528,7 @@ class ImageViewerUi(QMainWindow):
         # Accept the close event to allow the window to close
         event.accept()
 
+
     def reset_viewer(self):
         try:
             self.opacitySlider.valueChanged.disconnect()
@@ -566,10 +567,12 @@ class ImageViewerUi(QMainWindow):
         self.clusterVisibilityList.clear()
         if hasattr(self, 'savedMasksList'):
             self.savedMasksList.clear()
+
+        # Reset slider and combo box
         self.opacitySlider.setValue(self._mask_opacity)
         self.exportFormatCombo.setCurrentText("PNG")
 
-        # Clear the ImportLayout (radio buttons)
+        # Clear ImportLayout
         while self.ImportLayout.count():
             item = self.ImportLayout.takeAt(0)
             if item.widget():
@@ -581,70 +584,128 @@ class ImageViewerUi(QMainWindow):
         self.greenRBlist = QtWidgets.QButtonGroup()
         self.blueRBlist = QtWidgets.QButtonGroup()
 
-        # Remove widgets from generalLayout but keep the layout structure
-        if self.leftControlsScrollArea in self.generalLayout:
-            self.generalLayout.removeWidget(self.leftControlsScrollArea)
-        if self.display in self.generalLayout:
-            self.generalLayout.removeWidget(self.display)
-
-        # Recreate the display
-        self._createDisplay()
-
-        # Re-add the left controls scroll area to the main layout
-        self.generalLayout.insertWidget(0, self.leftControlsScrollArea)
-
-        # Reconnect signals
+        # Reconnect slider
         self.opacitySlider.valueChanged.connect(self.update_mask_opacity)
 
         QMessageBox.information(self, "Success", "Viewer has been reset.")
 
     def selectClustImages(self):
-        try:
-            num_images = self._image_set.num_images
-            if num_images == 0:
-                QMessageBox.warning(self, "No Images Loaded", "Please load images before selecting for clustering.")
-                return
-        except AttributeError:
-            QMessageBox.warning(self, "Image Set Error", "The image set is not properly initialized. Please load images first.")
+        """
+        Open a dialog to select images and optionally a spatial ROI for clustering.
+
+        Creates an ImageSelectDlg dialog that allows the user to select which images
+        to include in clustering and optionally select a cluster mask as a Region of Interest (ROI).
+        The selected images and ROI are then used to create a Cluster widget.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("=== selectClustImages called ===")
+        if self._image_set.num_images == 0:
+            QtWidgets.QMessageBox.warning(self, "No Images",
+                                          "No images are currently loaded. Please open images first.")
             return
 
-        # Provide only Saved Masks as ROI choices per spec
-        available_masks = {}
-        names = {}
-        for sid, entry in self._saved_masks.items():
-            try:
-                mask, color, name = entry
-                available_masks[int(sid)] = (mask, color)
-                names[int(sid)] = name
-            except Exception:
-                continue
+        # Combine live masks and saved masks for ROI selection
+        all_masks = {}
+        all_names = {}
 
-        select_dlg = ImageSelectDlg(self.fileNameList, self._image_set, masks=available_masks, names=names)
-        select_dlg.setModal(True)
+        """
+        # Add live cluster masks if they exist
+        if self._masks is not None:
+            logger.info(f"Adding {len(self._masks)} live masks to dialog")
+            for cluster_id, (mask, color) in self._masks.items():
+                all_masks[cluster_id] = (mask, color)
+                all_names[cluster_id] = self._cluster_names.get(cluster_id, f"Cluster {cluster_id}")
+        """
+        # Add saved masks if they exist
+        if self._saved_masks:
+            logger.info(f"Adding {len(self._saved_masks)} saved masks to dialog")
+            for saved_id, (mask, color, name) in self._saved_masks.items():
+                # Use negative IDs for saved masks to avoid collision with live clusters
+                mask_key = f"saved_{saved_id}"
+                all_masks[mask_key] = (mask, color)
+                all_names[mask_key] = f"[Saved] {name}"
 
-        select_dlg.exec_()
+        logger.info(f"Total masks available in dialog: {len(all_masks)}")
 
-        # Prepare prior state and ROI for Cluster
-        base_labels = self.clusterview.labels if (self.clusterview is not None and hasattr(self.clusterview, 'labels')) else None
-        base_masks = self._masks if self._masks is not None else None
-        spatial_roi = getattr(select_dlg, 'selected_roi_mask', None)
+        # Pass combined masks and names to the selection dialog
+        select_dlg = ImageSelectDlg(
+            self.fileNameList,
+            self._image_set,
+            checked=True,
+            masks=all_masks,
+            names=all_names
+        )
 
-        # Capture the ROI display name from Saved Masks for naming
-        try:
-            roi_saved_id = getattr(select_dlg, 'selected_roi_cluster_id', None)
-            self._last_selected_roi_cluster_id = roi_saved_id
-            if roi_saved_id is not None and int(roi_saved_id) in self._saved_masks:
-                _, _, nm = self._saved_masks[int(roi_saved_id)]
-                self._last_selected_roi_name = nm
+        result = select_dlg.exec_()
+        if result != QtWidgets.QDialog.Accepted:
+            logger.info("Dialog canceled by user")
+            return
+
+        # Extract the selected mask (which images to cluster)
+        selected_mask = select_dlg.selected_mask
+        logger.info(f"Selected {np.sum(selected_mask)} images for clustering")
+
+        # Extract the selected ROI information
+        roi_cluster_id = select_dlg.selected_roi_cluster_id
+        roi_mask = select_dlg.selected_roi_mask
+        roi_name = None
+
+        logger.info(f"ROI cluster ID from dialog: {roi_cluster_id}")
+        logger.info(
+            f"ROI mask from dialog: {type(roi_mask)}, shape: {roi_mask.shape if roi_mask is not None else 'None'}")
+
+        # Get the name for the selected ROI
+        if roi_cluster_id is not None:
+            if isinstance(roi_cluster_id, str) and roi_cluster_id.startswith("saved_"):
+                # It's a saved mask
+                saved_id = int(roi_cluster_id.split("_")[1])
+                roi_name = all_names.get(roi_cluster_id, f"Saved Mask {saved_id}")
             else:
-                self._last_selected_roi_name = None
-        except Exception:
-            self._last_selected_roi_cluster_id = None
-            self._last_selected_roi_name = None
+                # It's a live cluster
+                roi_name = self._cluster_names.get(roi_cluster_id, f"Cluster {roi_cluster_id}")
 
-        self.clusterview = Cluster(self.fileNameList, self._image_set, select_dlg.selected_mask, self.on_cluster_callback,
-                                   base_labels=base_labels, base_masks=base_masks, spatial_roi=spatial_roi)
+            logger.info(f"Selected ROI: {roi_name}")
+        else:
+            logger.info("No ROI selected (full image clustering)")
+
+        # Get base labels and masks for ROI clustering
+        base_labels = None
+        base_masks = None
+
+        if self.clusterview is not None:
+            base_labels = self.clusterview.labels
+            base_masks = self._masks
+            logger.info(
+                f"Using existing cluster view - labels shape: {base_labels.shape if base_labels is not None else 'None'}")
+            logger.info(f"Base masks count: {len(base_masks) if base_masks is not None else 0}")
+        else:
+            logger.info("No existing cluster view - first clustering run")
+
+        # Create Cluster widget with all the information
+        logger.info(f"Creating Cluster widget with spatial_roi: {roi_mask is not None}")
+        self.clusterview = Cluster(
+            self.fileNameList,
+            self._image_set,
+            selected_mask,
+            self.on_cluster_callback,
+            base_labels=base_labels,
+            base_masks=base_masks,
+            spatial_roi=roi_mask  # Pass the ROI mask here!
+        )
+
+        # Store the ROI information for reference
+        self._last_selected_roi_cluster_id = roi_cluster_id
+        self._last_selected_roi_name = roi_name
+
+        logger.info(f"Cluster widget created. Spatial ROI in Cluster: {self.clusterview._spatial_roi is not None}")
+        if self.clusterview._spatial_roi is not None:
+            logger.info(
+                f"Spatial ROI shape: {self.clusterview._spatial_roi.shape}, True pixels: {np.sum(self.clusterview._spatial_roi)}")
+
         self.clusterview.show()
+        logger.info("=== selectClustImages completed ===")
+
 
     def on_cluster_callback(self, labels: NDArray[int], settings: typing.Any):
         if self.clusterview is None:
@@ -890,7 +951,7 @@ class ImageViewerUi(QMainWindow):
         except Exception:
             pass
         self.savedMasksList.addItem(saved_item)
-        QMessageBox.information(self, "Saved", f"Saved '{base_name}' as a protected mask.")
+
 
     def show_saved_context_menu(self, position):
         """Context menu for the Saved Masks list."""

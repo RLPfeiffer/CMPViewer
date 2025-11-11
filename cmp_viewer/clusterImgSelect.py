@@ -103,9 +103,18 @@ class ImageSelectDlg(QtWidgets.QDialog):
 
             # Add one item per cluster mask
             for cid, (mask, color) in self._available_masks.items():
-                name = self._names.get(int(cid), f"Cluster {int(cid)}")
-                item = QtWidgets.QListWidgetItem(name)
-                item.setData(Qt.UserRole, int(cid))
+                # Handle both integer cluster IDs and string saved mask IDs
+                if isinstance(cid, str):
+                    # It's a saved mask with a string key like 'saved_1'
+                    name = self._names.get(cid, f"Saved Mask {cid}")
+                    item = QtWidgets.QListWidgetItem(name)
+                    item.setData(Qt.UserRole, cid)  # Store as string
+                else:
+                    # It's a live cluster with an integer key
+                    name = self._names.get(int(cid), f"Cluster {int(cid)}")
+                    item = QtWidgets.QListWidgetItem(name)
+                    item.setData(Qt.UserRole, int(cid))  # Store as int
+
                 try:
                     # Use background to show color
                     if isinstance(color, QColor):
@@ -172,14 +181,6 @@ class ImageSelectDlg(QtWidgets.QDialog):
     def return_results(self, index):
         """
         Update the selected_mask based on checked items and close the dialog.
-
-        This method is called when the user clicks the Select button. It updates
-        the selected_mask attribute based on which items are checked in the list,
-        and records the selected ROI mask (if any), then closes the dialog with
-        an "accept" result.
-
-        Args:
-            index (int): The index of the currently selected item (not used).
         """
         # Update selected_mask based on checked state of each item
         for i in range(self.clusterList.count()):
@@ -187,18 +188,40 @@ class ImageSelectDlg(QtWidgets.QDialog):
             self.selected_mask[i] = item.checkState() == Qt.Checked
 
         # Record selected ROI, if ROI list is present
-        if self.roiList is not None and self.roiList.currentItem() is not None:
-            sel_item = self.roiList.currentItem()
-            cid = sel_item.data(Qt.UserRole)
-            if cid is None:
-                self.selected_roi_cluster_id = None
-                self.selected_roi_mask = None
-            else:
-                self.selected_roi_cluster_id = int(cid)
-                mask_color = self._available_masks.get(self.selected_roi_cluster_id)
-                if mask_color is not None:
-                    self.selected_roi_mask = mask_color[0]
+        if self.roiList is not None:
+            # Get the selected items (not just current item)
+            selected_items = self.roiList.selectedItems()
+            if selected_items and len(selected_items) > 0:
+                sel_item = selected_items[0]  # Get first selected item
+                cid = sel_item.data(Qt.UserRole)
+                if cid is None:
+                    self.selected_roi_cluster_id = None
+                    self.selected_roi_mask = None
                 else:
+                    # cid can be either an int (live cluster) or str (saved mask like 'saved_1')
+                    self.selected_roi_cluster_id = cid  # Store as-is (int or str)
+                    mask_color = self._available_masks.get(cid)  # Look up using the key as-is
+                    if mask_color is not None:
+                        self.selected_roi_mask = mask_color[0]
+                    else:
+                        self.selected_roi_mask = None
+            else:
+                # No items selected, fall back to current item
+                if self.roiList.currentItem() is not None:
+                    sel_item = self.roiList.currentItem()
+                    cid = sel_item.data(Qt.UserRole)
+                    if cid is None:
+                        self.selected_roi_cluster_id = None
+                        self.selected_roi_mask = None
+                    else:
+                        self.selected_roi_cluster_id = cid
+                        mask_color = self._available_masks.get(cid)
+                        if mask_color is not None:
+                            self.selected_roi_mask = mask_color[0]
+                        else:
+                            self.selected_roi_mask = None
+                else:
+                    self.selected_roi_cluster_id = None
                     self.selected_roi_mask = None
         else:
             self.selected_roi_cluster_id = None
