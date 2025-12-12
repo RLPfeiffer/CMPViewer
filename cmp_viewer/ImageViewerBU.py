@@ -2,12 +2,11 @@
 # python -m cmp_viewer.imageviewer
 """ImageViewer is an initial core for opening and viewing CMP image stacks"""
 import sys
-import cv2
-import os
 import glob
-from cmp_viewer.rgb import *
-from cmp_viewer.clusterImgSelect import *
-from cmp_viewer.Cluster import *
+
+from cmp_viewer.dialogs import ImageSelectDlg
+from cmp_viewer.display import create_composite_image
+from cmp_viewer.cluster_widget import *
 import nornir_imageregistration
 from cmp_viewer import models
 from PIL import Image
@@ -18,30 +17,28 @@ from PyQt5.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
 from PyQt5.QtWidgets import QMainWindow
 from PyQt5.QtWidgets import QScrollArea
 from PyQt5.QtWidgets import QWidget
-from PyQt5.QtGui import QImage, QColor
-from PyQt5.QtWidgets import QMenuBar
+from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import QFileDialog
 from PyQt5.QtWidgets import QAction
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QGridLayout
 from PyQt5.QtWidgets import QLabel
 from PyQt5.QtWidgets import QLineEdit
 from PyQt5.QtWidgets import QRadioButton
 from PyQt5.QtWidgets import QPushButton
 from PyQt5.QtWidgets import QVBoxLayout
 from PyQt5.QtWidgets import QHBoxLayout
-from PyQt5.QtWidgets import QListView
 from PyQt5.QtWidgets import QListWidget
 from PyQt5.QtWidgets import QComboBox
 from PyQt5.QtWidgets import QSlider, QProgressDialog, QListWidgetItem
 from PyQt5 import QtWidgets
-from PyQt5 import QtGui
 from PyQt5.QtGui import QPixmap, qRgb
 from PyQt5.QtWidgets import QMessageBox
-from functools import partial
 
 __version__ = '1.0'
 __author__ = "RL Pfeiffer & NQN Studios"
+
+from cmp_viewer.utils import KMeansSettings
+
 
 class ImageViewerUi(QMainWindow):
     rawImages = []

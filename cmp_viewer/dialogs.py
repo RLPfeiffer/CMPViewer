@@ -1,15 +1,10 @@
-# import the necessary packages
-from PyQt5.QtWidgets import QWidget
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QPushButton
-from PyQt5.QtWidgets import QVBoxLayout
-from PyQt5.QtWidgets import QListWidget
-from PyQt5 import QtWidgets
-from PyQt5.QtCore import pyqtSignal
 import numpy as np
-from numpy.typing import NDArray
+from PyQt5 import QtWidgets
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
-from cmp_viewer.Cluster import Cluster
+from PyQt5.QtWidgets import QVBoxLayout, QListWidget, QPushButton, QWidget
+
+from cmp_viewer.cluster_widget import Cluster
 from cmp_viewer.models import ImageSet
 
 """

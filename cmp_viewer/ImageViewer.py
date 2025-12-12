@@ -2,46 +2,42 @@
 # python -m cmp_viewer.imageviewer
 """ImageViewer is an initial core for opening and viewing CMP image stacks"""
 import sys
-import cv2
 import os
-import glob
-from cmp_viewer.rgb import *
-from cmp_viewer.clusterImgSelect import *
-from cmp_viewer.Cluster import *
 import nornir_imageregistration
-import datetime
 from cmp_viewer import models
 from PIL import Image
 import typing
+from numpy.typing import NDArray
 import numpy as np
 import re
 import csv
+import cv2
+from cmp_viewer.dialogs import ImageSelectDlg
+from cmp_viewer.rgb import create_composite_image
+from cmp_viewer.cluster_widget import Cluster
+from cmp_viewer import utils
+from cmp_viewer import mask as mask_module
+from cmp_viewer.utils import KMeansSettings, ISODATASettings
 
 from PyQt5.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
 from PyQt5.QtWidgets import QMainWindow
 from PyQt5.QtWidgets import QScrollArea
 from PyQt5.QtWidgets import QWidget
-from PyQt5.QtGui import QImage, QColor
-from PyQt5.QtWidgets import QMenuBar
+from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import QFileDialog
 from PyQt5.QtWidgets import QAction
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QGridLayout
 from PyQt5.QtWidgets import QLabel
-from PyQt5.QtWidgets import QLineEdit
 from PyQt5.QtWidgets import QRadioButton
 from PyQt5.QtWidgets import QPushButton
 from PyQt5.QtWidgets import QVBoxLayout
 from PyQt5.QtWidgets import QHBoxLayout
-from PyQt5.QtWidgets import QListView
 from PyQt5.QtWidgets import QListWidget
 from PyQt5.QtWidgets import QComboBox
 from PyQt5.QtWidgets import QSlider, QProgressDialog, QListWidgetItem, QColorDialog, QMenu, QInputDialog
 from PyQt5 import QtWidgets
-from PyQt5 import QtGui
-from PyQt5.QtGui import QPixmap, qRgb
+from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QMessageBox
-from functools import partial
 
 __version__ = '1.5.2'
 __author__ = "RL Pfeiffer & NQN Studios"
@@ -104,7 +100,7 @@ class ImageViewerUi(QMainWindow):
         self.leftControlsScrollArea.setWidget(self.leftControlsWidget)
         self.leftControlsScrollArea.setWidgetResizable(True)
         self.leftControlsScrollArea.setFixedWidth(400)  # Fixed width to prevent overlap
-        self.leftControlsScrollArea.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.leftControlsScrollArea.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.leftControlsScrollArea.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
         # Add the left controls scroll area to the main layout
@@ -1215,7 +1211,7 @@ class ImageViewerUi(QMainWindow):
         Merge selected clusters into a single cluster.
 
         This method gathers the checked clusters in the Cluster Mask Visibility list,
-        calls the merge_clusters method in Cluster.py with those IDs, and invokes
+        calls the merge_clusters method in cluster_widget.py with those IDs, and invokes
         the on_cluster_callback with the updated labels/settings.
         """
         if self.clusterview is None or self._masks is None:
@@ -1233,7 +1229,7 @@ class ImageViewerUi(QMainWindow):
             QMessageBox.warning(self, "Insufficient Clusters Selected", "Please check at least two clusters to merge in the Cluster Mask Visibility list.")
             return
 
-        # Call the merge_clusters method in Cluster.py
+        # Call the merge_clusters method in cluster_widget.py
         new_labels, new_settings = self.clusterview.merge_clusters(checked_ids)
 
         if new_labels is None:
@@ -1303,7 +1299,7 @@ class ImageViewerUi(QMainWindow):
                 output_path = os.path.join(output_dir, f"cluster_{cluster_id}_mask")
 
             # Use Cluster class to export the mask
-            success = self.clusterview.export_cluster_mask(cluster_id, output_path, file_format)
+            success = mask_module.export_cluster_mask(cluster_id, output_path, file_format)
 
             if not success:
                 print(f"Failed to export mask for cluster {cluster_id}")
@@ -1330,7 +1326,7 @@ class ImageViewerUi(QMainWindow):
             self._num_labels = num_labels
 
             # Use Cluster class to prepare the image and get the color table
-            prepared_img, self._color_table = self.clusterview.prepare_label_image_for_display(img, num_labels)
+            prepared_img, self._color_table = utils.prepare_label_image_for_display(img, num_labels)
             self._clustered_image = prepared_img
 
             # Create QImage from the prepared image
@@ -1382,7 +1378,7 @@ class ImageViewerUi(QMainWindow):
 
             # Calculate optimal scale factor
             if self.clusterview is not None:
-                scale_factor = self.clusterview.calculate_optimal_scale_factor(height, width)
+                scale_factor = utils.calculate_optimal_scale_factor(height, width)
             else:
                 max_pixels = 500000
                 scale_factor = np.sqrt(max_pixels / (height * width)) if height * width > max_pixels else 1.0
@@ -1408,7 +1404,7 @@ class ImageViewerUi(QMainWindow):
 
                 # Create mask overlay
                 if self.clusterview is not None:
-                    overlay = self.clusterview.create_mask_overlay(
+                    overlay = mask_module.create_mask_overlay(
                         mask, color, self._mask_opacity,
                         target_width=new_width, target_height=new_height
                     )
@@ -1451,7 +1447,7 @@ class ImageViewerUi(QMainWindow):
             smask = any_entry[0]
             height, width = smask.shape
             if self.clusterview is not None:
-                scale_factor = self.clusterview.calculate_optimal_scale_factor(height, width)
+                scale_factor = utils.calculate_optimal_scale_factor(height, width)
             else:
                 max_pixels = 500000
                 scale_factor = np.sqrt(max_pixels / (height * width)) if height * width > max_pixels else 1.0
@@ -1475,7 +1471,7 @@ class ImageViewerUi(QMainWindow):
                     continue
                 # Create overlay
                 if self.clusterview is not None:
-                    overlay = self.clusterview.create_mask_overlay(
+                    overlay = mask_module.create_mask_overlay(
                         mask, color, self._mask_opacity,
                         target_width=new_width, target_height=new_height
                     )
